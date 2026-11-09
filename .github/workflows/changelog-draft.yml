@@ -1,0 +1,183 @@
+name: Generate changelog draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional heading for the changelog entry (e.g. 1.2.3)"
+        required: false
+        type: string
+      from_ref:
+        description: "Optional start ref/tag/commit (defaults to previous tag)"
+        required: false
+        type: string
+      to_ref:
+        description: "Optional end ref/tag/commit/branch (defaults to HEAD)"
+        required: false
+        type: string
+
+jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Determine compare range
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_FROM_REF: ${{ inputs.from_ref }}
+          INPUT_TO_REF: ${{ inputs.to_ref }}
+        run: |
+          set -euo pipefail
+
+          git fetch --force --tags
+
+          TO_REF="${INPUT_TO_REF:-HEAD}"
+          TO_COMMIT="$(git rev-parse --verify "${TO_REF}^{commit}")"
+
+          if [ -n "${INPUT_FROM_REF:-}" ]; then
+            FROM_REF="${INPUT_FROM_REF}"
+            FROM_COMMIT="$(git rev-parse --verify "${FROM_REF}^{commit}")"
+            HAS_FROM_REF="true"
+          else
+            TAG_AT_TO="$(git tag --points-at "${TO_COMMIT}" | head -n1 || true)"
+
+            if [ -n "${TAG_AT_TO}" ]; then
+              FROM_REF="$(git for-each-ref --sort=-creatordate --format='%(refname:short)' refs/tags | awk -v cur="$TAG_AT_TO" '$0 != cur { print; exit }')"
+            else
+              FROM_REF="$(git describe --tags --abbrev=0 "${TO_COMMIT}" 2>/dev/null || true)"
+            fi
+
+            if [ -n "${FROM_REF}" ]; then
+              FROM_COMMIT="$(git rev-parse --verify "${FROM_REF}^{commit}")"
+              HAS_FROM_REF="true"
+            else
+              FROM_REF=""
+              FROM_COMMIT=""
+              HAS_FROM_REF="false"
+            fi
+          fi
+
+          VERSION_LABEL="${INPUT_VERSION:-}"
+          if [ -z "${VERSION_LABEL}" ]; then
+            CURRENT_TAG="$(git tag --points-at "${TO_COMMIT}" | head -n1 || true)"
+            if [ -n "${CURRENT_TAG}" ]; then
+              VERSION_LABEL="${CURRENT_TAG}"
+            else
+              VERSION_LABEL="Unreleased"
+            fi
+          fi
+
+          {
+            echo "TO_REF=${TO_REF}"
+            echo "TO_COMMIT=${TO_COMMIT}"
+            echo "FROM_REF=${FROM_REF}"
+            echo "FROM_COMMIT=${FROM_COMMIT}"
+            echo "HAS_FROM_REF=${HAS_FROM_REF}"
+            echo "VERSION_LABEL=${VERSION_LABEL}"
+          } >> "$GITHUB_ENV"
+
+      - name: Generate changelog draft
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          from collections import OrderedDict
+
+          repo = os.environ["REPO"]
+          version_label = os.environ["VERSION_LABEL"]
+          to_commit = os.environ["TO_COMMIT"]
+          from_commit = os.environ.get("FROM_COMMIT", "")
+          has_from_ref = os.environ.get("HAS_FROM_REF", "false").lower() == "true"
+
+          if has_from_ref:
+              log_range = f"{from_commit}..{to_commit}"
+          else:
+              log_range = to_commit
+
+          result = subprocess.run(
+              ["git", "log", "--no-merges", "--pretty=format:%H%x09%s", log_range],
+              check=True,
+              capture_output=True,
+              text=True,
+          )
+
+          lines = [line for line in result.stdout.splitlines() if line.strip()]
+
+          sections = OrderedDict([
+              ("Added", []),
+              ("Fixed", []),
+              ("Changed", []),
+              ("Documentation", []),
+              ("Maintenance", []),
+              ("Tests", []),
+              ("Other", []),
+          ])
+
+          pattern = re.compile(
+              r"^(?P<type>feat|fix|refactor|perf|docs|chore|build|ci|style|test)(?:\([^)]+\))?!?:\s*(?P<subject>.+)$",
+              re.IGNORECASE,
+          )
+
+          type_map = {
+              "feat": "Added",
+              "fix": "Fixed",
+              "refactor": "Changed",
+              "perf": "Changed",
+              "docs": "Documentation",
+              "chore": "Maintenance",
+              "build": "Maintenance",
+              "ci": "Maintenance",
+              "style": "Maintenance",
+              "test": "Tests",
+          }
+
+          for line in lines:
+              sha, subject = line.split("\t", 1)
+              short_sha = sha[:7]
+              match = pattern.match(subject.strip())
+
+              if match:
+                  section = type_map[match.group("type").lower()]
+                  clean_subject = match.group("subject").strip()
+              else:
+                  section = "Other"
+                  clean_subject = subject.strip()
+
+              sections[section].append(
+                  f"- {clean_subject} ([`{short_sha}`](https://github.com/{repo}/commit/{sha}))"
+              )
+
+          output = []
+          output.append(f"## {version_label}")
+          output.append("")
+
+          if not lines:
+              output.append("- No changes found in the selected range.")
+          else:
+              for section, items in sections.items():
+                  if not items:
+                      continue
+                  output.append(f"### {section}")
+                  output.append("")
+                  output.extend(items)
+                  output.append("")
+
+          with open("changelog-draft.md", "w", encoding="utf-8") as f:
+              f.write("\n".join(output).rstrip() + "\n")
+          PY
+
+      - name: Add draft to job summary
+        shell: bash
+        run: cat changelog-draft.md >> "$GITHUB_STEP_SUMMARY"

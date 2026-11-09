@@ -1,0 +1,93 @@
+name: Publish release to Foundry
+
+on:
+  workflow_run:
+    workflows: ["Build ZIP and publish release"]
+    types: [completed]
+
+  workflow_dispatch:
+
+jobs:
+  publish-to-foundry:
+    if: >
+      github.repository == 'Flashiiio/Pack-and-Ledger' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release commit
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Checkout current ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v5
+
+      - name: Build Foundry release payload from module.json
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("module.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          package_id = data["id"].strip()
+          version = data["version"].strip()
+
+          compatibility = data["compatibility"]
+          minimum = compatibility["minimum"].strip()
+          verified = compatibility["verified"].strip()
+          maximum = compatibility.get("maximum", "").strip()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          version_tag = f"v{version}"
+
+          manifest_url = f"https://github.com/{repo}/releases/download/{version_tag}/module.json"
+          notes_url = f"https://github.com/{repo}/blob/main/CHANGELOG.md"
+
+          release = {
+              "version": version,
+              "manifest": manifest_url,
+              "notes": notes_url,
+              "compatibility": {
+                  "minimum": minimum,
+                  "verified": verified
+              }
+          }
+
+          if maximum:
+              release["compatibility"]["maximum"] = maximum
+
+          payload = {
+              "id": package_id,
+              "release": release
+          }
+
+          with open("foundry-release.json", "w", encoding="utf-8") as f:
+              json.dump(payload, f, indent=2, ensure_ascii=False)
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"PACKAGE_ID={package_id}\n")
+              env.write(f"VERSION_NUMBER={version}\n")
+              env.write(f"VERSION_TAG={version_tag}\n")
+              env.write(f"MANIFEST_URL={manifest_url}\n")
+              env.write(f"NOTES_URL={notes_url}\n")
+          PY
+
+      - name: Publish to Foundry Package Release API
+        shell: bash
+        env:
+          FOUNDRY_RELEASE_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN }}
+        run: |
+          curl --fail-with-body \
+            -X POST "https://foundryvtt.com/_api/packages/release_version/" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: ${FOUNDRY_RELEASE_TOKEN}" \
+            --data @foundry-release.json
+
+          echo "Published ${PACKAGE_ID} ${VERSION_NUMBER} to Foundry."

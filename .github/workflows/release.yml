@@ -1,0 +1,174 @@
+name: Build ZIP and publish release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Abhängigkeiten installieren und Modul bauen
+        run: |
+          npm ci
+          npm run build
+
+      - name: Version aus module.json lesen
+        shell: bash
+        run: |
+          test -f module.json
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("module.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          version = str(data.get("version", "")).strip()
+          if not version:
+              raise SystemExit("module.json enthält keine gültige 'version'.")
+
+          env_file = os.environ["GITHUB_ENV"]
+          with open(env_file, "a", encoding="utf-8") as env:
+              env.write(f"VERSION_NUMBER={version}\n")
+              env.write(f"VERSION_TAG=v{version}\n")
+              env.write(f"VERSION_NAME=Release Version {version}\n")
+          PY
+
+      - name: Prüfen, ob Tag schon existiert
+        shell: bash
+        run: |
+          if git show-ref --tags --verify --quiet "refs/tags/${VERSION_TAG}"; then
+            echo "::error title=Tag existiert bereits::${VERSION_TAG} existiert schon. Erhöhe die version in module.json, bevor du ein neues Release startest."
+            exit 1
+          fi
+
+      - name: Prüfen, ob module.json zu Version und Download-URL passt
+        shell: bash
+        run: |
+          EXPECTED_DOWNLOAD="https://github.com/${GITHUB_REPOSITORY}/releases/download/${VERSION_TAG}/pack-and-ledger.zip"
+
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          try:
+              with open("module.json", "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except FileNotFoundError:
+              print("::error title=module.json fehlt::Die Datei module.json wurde nicht gefunden.")
+              sys.exit(1)
+          except json.JSONDecodeError as e:
+              print(f"::error title=module.json ist ungültiges JSON::{e}")
+              sys.exit(1)
+
+          version = str(data.get("version", "")).strip()
+          download = str(data.get("download", "")).strip()
+
+          expected_version = os.environ["VERSION_NUMBER"]
+          expected_download = os.environ["EXPECTED_DOWNLOAD"]
+
+          failed = False
+
+          if version != expected_version:
+              print(f"::error title=Version stimmt nicht::module.json version='{version}', erwartet='{expected_version}'")
+              failed = True
+
+          if download != expected_download:
+              print("::error title=Download-URL stimmt nicht::"
+                    f"module.json download='{download}' | erwartet='{expected_download}'")
+              failed = True
+
+          if failed:
+              sys.exit(1)
+
+          print("module.json passt zu Version und Download-URL.")
+          PY
+        env:
+          EXPECTED_DOWNLOAD: https://github.com/${{ github.repository }}/releases/download/${{ env.VERSION_TAG }}/pack-and-ledger.zip
+
+      - name: ZIP bauen
+        run: |
+          zip -r pack-and-ledger.zip \
+            module.json \
+            style.css \
+            scripts \
+            lang \
+            LICENSE \
+            README.md \
+            README.de.md \
+            CHANGELOG.md
+
+      - name: Release erstellen und Assets hochladen
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            const zipPath = 'pack-and-ledger.zip';
+            const modulePath = 'module.json';
+            const tag = process.env.VERSION_TAG;
+            const name = process.env.VERSION_NAME;
+
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              target_commitish: context.sha,
+              name: name,
+              draft: false,
+              prerelease: false,
+              generate_release_notes: true
+            });
+
+            const release_id = release.data.id;
+
+            const zipData = fs.readFileSync(zipPath);
+            const zipSize = fs.statSync(zipPath).size;
+
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id,
+              name: 'pack-and-ledger.zip',
+              data: zipData,
+              headers: {
+                'content-type': 'application/zip',
+                'content-length': zipSize
+              }
+            });
+
+            const moduleData = fs.readFileSync(modulePath);
+            const moduleSize = fs.statSync(modulePath).size;
+
+            await github.rest.repos.uploadReleaseAsset({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id,
+              name: 'module.json',
+              data: moduleData,
+              headers: {
+                'content-type': 'application/json',
+                'content-length': moduleSize
+              }
+            });
+        env:
+          VERSION_TAG: ${{ env.VERSION_TAG }}
+          VERSION_NAME: ${{ env.VERSION_NAME }}

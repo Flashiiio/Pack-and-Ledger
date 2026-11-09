@@ -1,0 +1,1083 @@
+{
+  "PACK_LEDGER": {
+    "Slots": {
+      "weapon": "Weapons",
+      "shield": "Shield",
+      "armor": "Armor",
+      "clothing": "Clothing",
+      "tool": "Tools",
+      "backpack": "Backpacks",
+      "jug": "Jug",
+      "trinket": "Trinkets",
+      "free": "Free (not counted)",
+      "stow": "Must be stowed",
+      "auto": "Automatic ({slot})",
+      "autoNone": "Automatic (must be stowed)"
+    },
+    "Summary": {
+      "Unstowed": "Not stowed",
+      "Manage": "Assign inventory slots",
+      "Tidy": "Tidy up: stow misplaced items into containers"
+    },
+    "Context": {
+      "SetSlot": "Set Inventory Slot",
+      "Repair": "Repair Container",
+      "Drop": "Drop on the ground"
+    },
+    "Tear": {
+      "TornSuffix": "torn",
+      "ChatTitle": "{container} has torn!",
+      "PickUp": "Pick up",
+      "PickUpAll": "Pick up everything"
+    },
+    "Dialog": {
+      "SlotTitle": "Inventory Slot: {name}",
+      "SlotLabel": "Body Slot",
+      "SlotHint": "Overrides the automatic classification of this item.",
+      "ManagerTitle": "Inventory Slots: {name}",
+      "Item": "Item",
+      "Location": "Location",
+      "Slot": "Slot",
+      "Body": "On body",
+      "Save": "Save"
+    },
+    "Notify": {
+      "OverflowCount": "\"{item}\" does not fit into \"{container}\": {value}/{max} items.",
+      "OverflowWeight": "\"{item}\" does not fit into \"{container}\": {value}/{max} {units}.",
+      "MustStow": "\"{item}\" cannot be carried directly on the body and must be stowed in a container.",
+      "SlotFull": "No free slot for \"{item}\": {slot} is already full ({max}/{max}).",
+      "SlotWeight": "\"{item}\" at {value} {units} is too heavy to be carried on the body as {slot} (must be lighter than {max} {units}). Please stow it.",
+      "NoStowTarget": "No container with enough room is available.",
+      "Stowed": "\"{item}\" was automatically stowed in \"{container}\".",
+      "StowedMany": "{count} items were automatically stowed: {list}",
+      "Overfilled": "\"{container}\" is overfilled by {percent}% and might tear! ({chance}% risk each time something is stored)",
+      "OverfillLimit": "\"{item}\" does not fit into \"{container}\": the container would be overfilled by {percent}% (at most {limit}% allowed).",
+      "Torn": "\"{container}\" has torn! Its contents lie scattered on the ground.",
+      "TornContainer": "\"{container}\" is torn and cannot hold anything.",
+      "NoGM": "A GM must be online for this.",
+      "NoPickupActor": "Select one of your tokens first to pick up the item.",
+      "AlreadyPicked": "This item has already been picked up.",
+      "PickedUp": "{actor} picks up \"{item}\".",
+      "Tidied": "{count} items were stowed.",
+      "TidyUnplaced": "No container with room for: {list}",
+      "OutOfRange": "{actor} is too far away from the pile.",
+      "BodyPart": "\"{item}\" is part of the body and cannot be put down.",
+      "SlotGMOnly": "Only the GM can assign inventory slots.",
+      "PileLocked": "This is locked.",
+      "NoCoins": "{actor} has no coins.",
+      "Discovered": "{actor} found something: {pile}",
+      "NoKey": "{actor} has no matching key.",
+      "NoThievesTools": "{actor} has no thieves' tools.",
+      "PickFailed": "{actor} cannot pick the lock of \"{pile}\".",
+      "Unlocked": "{actor} opened \"{pile}\".",
+      "NoMysteryKey": "{actor} has no Mystery Key.",
+      "MysteryKeyTried": "{actor} already tried the Mystery Key on this lock.",
+      "MysteryKeyFailed": "\"{key}\" does not open the lock for {actor}.",
+      "NoCoinsChosen": "No coins chosen. Enter an amount or click \"All\".",
+      "DropCoinsFailed": "The coins could not be dropped (see the console, F12).",
+      "RequestFailed": "That did not work: {error} (details in the GM's console, F12).",
+      "NoCoinsHere": "There are no coins here (any more)."
+    },
+    "Settings": {
+      "enforceCapacity": {
+        "Name": "Enforce container capacity",
+        "Hint": "Prevents storing items when the capacity (weight or count) of a container or one of its parent containers would be exceeded."
+      },
+      "notifyLevel": {
+        "Name": "Notifications",
+        "Hint": "Important only: warnings (e.g. no room, out of range) and declined or cancelled trades\nAll: also messages about picking up, auto-stowing, tidying, completed trades and new log entries\nApplies to all players and the GM.",
+        "Important": "Important only",
+        "All": "All"
+      },
+      "overfillMode": {
+        "Name": "On overfill",
+        "Hint": "\"Block\" rejects storing the item. \"Overfill with tear risk\" allows it with a warning. Each time something is stored in an overfilled container it may tear, scattering all of its contents on the map around the token.",
+        "Block": "Block",
+        "Risk": "Overfill with tear risk"
+      },
+      "overfillHardLimit": {
+        "Name": "Maximum overfill (%)",
+        "Hint": "Beyond this percentage a container cannot be filled even in tear-risk mode. 0 = no limit."
+      },
+      "tearChanceFactor": {
+        "Name": "Tear risk factor",
+        "Hint": "Tear chance in % = overfill in % × factor. With factor 1 a container overfilled by 25% tears with a 25% chance and always tears at 100% overfill or more."
+      },
+      "enforceSlots": {
+        "Name": "Limit body slots",
+        "Hint": "Limits which and how many items may be carried directly in the inventory (outside of containers). Everything else must be stowed in containers."
+      },
+      "slotActorTypes": {
+        "Name": "Slot limits apply to",
+        "Hint": "Which actor types are affected by the body slot limits.",
+        "Character": "Player characters only",
+        "CharacterNpc": "Player characters and NPCs"
+      },
+      "autoStow": {
+        "Name": "Auto-stow",
+        "Hint": "Items that may not be carried on the body are placed into the first container with enough room when added, instead of being rejected."
+      },
+      "gmBypass": {
+        "Name": "Exempt the GM",
+        "Hint": "The GM may ignore all limits."
+      },
+      "fileLog": {
+        "Name": "Write the log",
+        "Hint": "Writes the activity log and the module's warnings and errors to the compendium \"Pack & Ledger Logs\". Only the GM can open it; it is read in the log window. Entries are only written while a GM is logged in. Players' warnings are sent to the GM."
+      },
+      "logRetentionDays": {
+        "Name": "Keep the log (days)",
+        "Hint": "Entries (activity and coins) older than this many days are deleted when the GM logs in. 0 keeps everything."
+      },
+      "limitWeapon": {
+        "Name": "Max weapons on the body",
+        "Hint": "Number of weapons that may be carried directly. Each weapon counts, also within a stack (5 longswords are 5 weapons). Daggers are the exception: two daggers share a slot (1 or 2 daggers take 1 slot, 3 or 4 take 2)."
+      },
+      "limitShield": {
+        "Name": "Max shields on the body",
+        "Hint": "Equipment of type \"Shield\"."
+      },
+      "limitArmor": {
+        "Name": "Max armor on the body",
+        "Hint": "Equipment of type light, medium or heavy armor."
+      },
+      "limitClothing": {
+        "Name": "Max clothing on the body",
+        "Hint": "Equipment of type \"Clothing\"."
+      },
+      "limitTool": {
+        "Name": "Max tools on the body",
+        "Hint": "Items of type \"Tool\" (thieves' tools, artisan's tools, instruments …)."
+      },
+      "limitBackpack": {
+        "Name": "Max backpacks on the body",
+        "Hint": "Any container not recognized as a jug."
+      },
+      "limitJug": {
+        "Name": "Max jugs on the body",
+        "Hint": "Containers whose name matches the jug pattern."
+      },
+      "limitTrinket": {
+        "Name": "Max trinkets on the body",
+        "Hint": "Small items on the body: rings, spellcasting focuses, holy symbols, potions, healer's kits etc."
+      },
+      "limitTrinketWeight": {
+        "Name": "Trinket weight limit (lb)",
+        "Hint": "Only items lighter than this value (per unit) count as trinkets. Heavier ones must be stowed.\n0 = no limit."
+      },
+      "trinketEquipmentTypes": {
+        "Name": "Trinket: equipment types",
+        "Hint": "Equipment types (dnd5e keys, separated by commas) that count as trinkets. Default: trinket, ring, rod, wand. Spellcasting focuses such as a crystal, orb, rod or wand have these types in dnd5e."
+      },
+      "trinketConsumableTypes": {
+        "Name": "Trinket: consumable types",
+        "Hint": "Consumable types (separated by commas) that count as trinkets. Default: potion, trinket. This makes potions and the healer's kit count as trinkets."
+      },
+      "trinketPattern": {
+        "Name": "Trinket: name pattern (regex)",
+        "Hint": "Items whose name matches this regular expression also count as trinkets regardless of type (e.g. Holy Symbol, Arcane Focus, Healer's Kit)."
+      },
+      "clothingPattern": {
+        "Name": "Clothing: name pattern (regex)",
+        "Hint": "Items whose name matches this regular expression count as clothing instead of trinkets. This applies even if they were imported e.g. as a consumable of type \"trinket\" (e.g. Robe, Vestments)."
+      },
+      "freePattern": {
+        "Name": "Free: name pattern (regex)",
+        "Hint": "Items whose name matches this regular expression take no slot and never need to be stowed. Natural weapons (type \"Natural\", e.g. Unarmed Strike, claws, bite) are always free."
+      },
+      "bodyWeightEnabled": {
+        "Name": "Count body weight toward encumbrance",
+        "Hint": "A share of the body weight (biography field \"Weight\", e.g. \"180 lb\" or \"82 kg\") counts as weight already carried and reduces the room left before becoming encumbered."
+      },
+      "bodyWeightPercent": {
+        "Name": "Body weight share (%)",
+        "Hint": "Percentage of the body weight that counts toward the carried load. At 25% and 180 lb body weight, 45 lb count as carried."
+      },
+      "jugPattern": {
+        "Name": "Jug pattern (regex)",
+        "Hint": "Containers whose name matches this regular expression count as jugs instead of backpacks. Individual items can be overridden via right-click → \"Set Inventory Slot\"."
+      },
+      "pilesEnabled": {
+        "Name": "Drop items onto the map",
+        "Hint": "Items dragged from a sheet onto the map land on the ground as a pile. Double-click a pile to open it."
+      },
+      "pileRange": {
+        "Name": "Pile reach (squares)",
+        "Hint": "How far a token may be from a pile to take from it or drop something. 1 = adjacent. 0 = unlimited. Does not apply to the GM."
+      },
+      "pileDeleteEmpty": {
+        "Name": "Remove empty piles",
+        "Hint": "Removes a pile from the map once its last item was taken."
+      },
+      "pileMaskConsumables": {
+        "Name": "Hide potions and scrolls",
+        "Hint": "Potions and scrolls the GM puts into a pile from the sidebar or a compendium appear to players as “Unknown potion” or “Unknown scroll” until the GM identifies them. What players drop from their inventory stays as it is."
+      },
+      "tradeEnabled": {
+        "Name": "Trading between characters",
+        "Hint": "Adds a Trade button below the player list. Both sides put items and coins into a trade window; once both accept, everything is swapped. The GM trades for NPCs without a player."
+      },
+      "tradeRange": {
+        "Name": "Trade range (squares)",
+        "Hint": "How far apart the trading partners' tokens may be at most. 1 = adjacent. 0 = no limit. Does not apply when the GM trades on both sides."
+      },
+      "pilePassiveDiscovery": {
+        "Name": "Passive Perception finds piles",
+        "Hint": "When a player character moves within reach of a hidden pile and their passive Perception meets the DC, the pile becomes visible. Active Perception checks always work."
+      },
+      "pileDiscoveryRange": {
+        "Name": "Discovery range (squares)",
+        "Hint": "How close a character must be to a hidden pile to discover it. 0 = unlimited."
+      },
+      "pileDiscoveryDC": {
+        "Name": "Default discovery DC",
+        "Hint": "Perception DC for hidden piles that have no DC of their own set in the pile window."
+      },
+      "pileLockDC": {
+        "Name": "Default lock DC",
+        "Hint": "DC of the thieves' tools check for chests that have no DC of their own set in the pile window."
+      },
+      "currencyAudit": {
+        "Name": "Log coin changes",
+        "Hint": "Writes every coin change of a player character to the coin log: who, when, how much, before and after. Coins from item piles, trades and invoices are included."
+      },
+      "currencyAuditGM": {
+        "Name": "Include the GM's changes",
+        "Hint": "Also logs coin changes made by the GM. Off: only changes by players."
+      },
+      "currencyAskReason": {
+        "Name": "Ask for a reason",
+        "Hint": "After a player changes coins, asks the GM for the reason (reward, correction …). The answer is added to the log as an entry of its own."
+      },
+      "currencySuspiciousCount": {
+        "Name": "Suspicious from",
+        "Hint": "This many changes by one player to the same character in a short time are flagged as suspicious (a warning in the log). 0 = never."
+      },
+      "currencySuspiciousSeconds": {
+        "Name": "Time for suspicious changes",
+        "Hint": "The time in which the changes are counted."
+      },
+      "currencyMath": {
+        "Name": "Sums with denominations",
+        "Hint": "A sum in the coin fields of the character sheet may name another denomination, e.g. \"-50 copper\" in the gold field. \"+10\" and \"-5\" for the field itself are handled by dnd5e already."
+      },
+      "currencyAutoConvert": {
+        "Name": "Make change automatically",
+        "Hint": "When one denomination is not enough, other coins are used and change is given, as long as the purse is worth enough: 2 gp, \"-5\" in the silver field → 1 gp, 5 sp."
+      },
+      "currencyPlatinum": {
+        "Name": "Change in platinum",
+        "Hint": "Change (coin fields and invoices) may be given in platinum. Off: gold, silver and copper."
+      },
+      "currencyElectrum": {
+        "Name": "Change in electrum",
+        "Hint": "Change may be given in electrum."
+      },
+      "invoicesEnabled": {
+        "Name": "Invoices",
+        "Hint": "The GM can send invoices to player characters (button in the token controls and in the header of the character sheet). The player pays or declines."
+      },
+      "trackerEnabled": {
+        "Name": "Track characters",
+        "Hint": "Writes changes to the stored data of player characters (hit points, spell slots, resources, inventory, item uses …) with the value before and after to the log (filter \"Characters\"). Coins are in the coin log."
+      },
+      "trackerHideGM": {
+        "Name": "Hide the GM's changes",
+        "Hint": "Do not log changes made by GMs or assistants."
+      },
+      "trackerAllOwned": {
+        "Name": "Track all player-owned characters",
+        "Hint": "All characters a player owns. Off: only the assigned player characters. Unlinked tokens count as characters of their own."
+      },
+      "trackerConcentration": {
+        "Name": "Track concentration",
+        "Hint": "Log concentration effects and include them in the snapshot comparison."
+      },
+      "trackerSpells": {
+        "Name": "Track spells",
+        "Hint": "Names the spell a spell slot was spent on. When a spell that needs a slot is cast without one, the log shows a warning."
+      },
+      "trackerPrivate": {
+        "Name": "Include confidential fields",
+        "Hint": "Also log and restore the confidential fields. They may contain personal text."
+      },
+      "trackerPrivateFields": {
+        "Name": "Confidential fields",
+        "Hint": "Field paths that are left out, separated by commas, e.g. system.details.biography. Applies to sub-fields too."
+      },
+      "provisionsEnabled": {
+        "Name": "Group provisions",
+        "Hint": "Shows the group's food and water (button in the token controls) and lets characters eat and drink from it during a long rest."
+      },
+      "provisionsAuto": {
+        "Name": "Take automatically at a rest",
+        "Hint": "Applies when a player starts a long rest on their own: whatever is missing is taken from the group's provisions without asking. Off: the player chooses in a dialog. At a rest the GM calls, the group shares out the meals together."
+      },
+      "provisionsFoodPerDay": {
+        "Name": "Food per day",
+        "Hint": "Rations a character needs a day."
+      },
+      "provisionsWaterPerDay": {
+        "Name": "Water per day",
+        "Hint": "Pints of water a character needs a day (a waterskin holds 4)."
+      },
+      "provisionsFoodPattern": {
+        "Name": "Food (name)",
+        "Hint": "Items whose name matches this regular expression count as food."
+      },
+      "provisionsWaterPattern": {
+        "Name": "Water (name)",
+        "Hint": "Items whose name matches this regular expression count as water."
+      },
+      "restEnabled": {
+        "Name": "Use the rest system",
+        "Hint": "The GM calls rests with the button below the player list. At a long rest the characters eat and drink from the group's provisions."
+      },
+      "restGMOnly": {
+        "Name": "Only the GM starts rests",
+        "Hint": "Players cannot rest on their own. Rests the GM calls and dnd5e's rest requests still work."
+      },
+      "restAdvanceTime": {
+        "Name": "Let the time pass",
+        "Hint": "Default when calling a rest: the clock moves on by the length of the rest (depending on dnd5e's rest variant)."
+      },
+      "restMealsPropose": {
+        "Name": "Propose meals automatically",
+        "Hint": "At a called long rest the module proposes a sharing of food and water right away. Off: the players share out themselves; the GM can have the module make a proposal when needed."
+      },
+      "restExternalFood": {
+        "Name": "External food source",
+        "Hint": "How much of the day's food an external source gives when it is ticked at calling a rest. No items are used up."
+      },
+      "restExternalWater": {
+        "Name": "External water source",
+        "Hint": "How much of the day's water an external source gives when it is ticked at calling a rest. No items are used up."
+      },
+      "restExhaustion": {
+        "Name": "Exhaustion from hunger and thirst",
+        "Hint": "Characters short of food or water at a long rest become exhausted following the rules above."
+      },
+      "restHalfWaterDC": {
+        "Name": "DC with half the water",
+        "Hint": "DC of the Constitution save when a character drank only half of their water. 0 = no save and no exhaustion."
+      },
+      "restNoFoodDays": {
+        "Name": "Days without food",
+        "Hint": "How many days a character can go without food before becoming exhausted. A formula using the character's data."
+      },
+      "Access": {
+        "none": "None",
+        "half": "Half",
+        "full": "Full"
+      }
+    },
+    "Pile": {
+      "ActorName": "Item Pile",
+      "Name": "Pile of items",
+      "Empty": "Empty Pile",
+      "EmptyHint": "Nothing is left here.",
+      "Taker": "{actor} takes the items.",
+      "TakerOutOfRange": "{actor} is too far away. Move closer.",
+      "NoTaker": "Select one of your tokens to take items.",
+      "TakeHint": "Take one",
+      "TakeTitle": "Take: {name}",
+      "DropTitle": "Drop: {name}",
+      "Quantity": "Quantity (at most {max})",
+      "Confirm": "OK",
+      "DropHint": "Drag items here or onto the map to drop them. Drag them from this window onto a character sheet to take them.",
+      "Chest": "Chest",
+      "ChestLocked": "Chest (locked)",
+      "TakeCoins": "Take the coins",
+      "DropCoins": "Drop coins",
+      "DropCoinsHere": "Put coins of {actor} into this pile",
+      "DropCoinsBeside": "Put coins on the ground next to the token",
+      "DropCoinsTitle": "Drop coins: {actor}",
+      "DropCoinsHint": "How many coins should be put down?",
+      "DropCoinsInto": "Put coins into \"{container}\"",
+      "CoinsAll": "All ({max})",
+      "CoinPileTool": "Create a pile of coins",
+      "CoinPileTitle": "Create a pile of coins",
+      "CoinPileHint": "After this, click the spot on the map where the pile should lie.",
+      "CoinPileCreate": "Next",
+      "CoinsName": "Coins",
+      "CoinPilePlace": "Click on the map where the pile of coins should lie (right-click or Esc cancels).",
+      "Masked": {
+        "Potion": "Unknown potion",
+        "PotionDescription": "A small vial holding a liquid of unknown effect.",
+        "Scroll": "Unknown scroll",
+        "ScrollDescription": "A rolled-up scroll, written in a script whose meaning is not clear."
+      }
+    },
+    "Log": {
+      "Notify": "Pack & Ledger: {summary}",
+      "NotifyMany": "Pack & Ledger: {count} changes logged.",
+      "tear": {
+        "Title": "Container torn",
+        "Summary": "{actor}'s \"{container}\" tore ({percent}% overfilled, {chance}% risk).",
+        "Empty": "The container was empty."
+      },
+      "pickup": {
+        "Title": "Picked up",
+        "Summary": "{actor} picks up: {item}"
+      },
+      "drop": {
+        "Title": "Dropped",
+        "Summary": "{actor} drops: {item}"
+      },
+      "stow": {
+        "Title": "Stowed automatically",
+        "Summary": "{count} items of {actor} were stowed automatically."
+      },
+      "tidy": {
+        "Title": "Tidied up",
+        "Summary": "{count} items of {actor} were stowed.",
+        "Unplaced": "No room for: {list}"
+      },
+      "repair": {
+        "Title": "Repaired",
+        "Summary": "{actor} repaired \"{container}\"."
+      },
+      "trade": {
+        "Title": "Trade",
+        "Summary": "{actor} trades with {partner}"
+      },
+      "discover": {
+        "Title": "Discovered",
+        "Summary": "{actor} discovers: {item}"
+      },
+      "unlock": {
+        "Title": "Opened",
+        "Summary": "{actor} opens \"{item}\" ({method})"
+      },
+      "provision": {
+        "Title": "Fed",
+        "Summary": "{actor} is fed from the group's provisions: {food} food, {water} water"
+      },
+      "refill": {
+        "Title": "Refilled",
+        "Summary": "{actor}: waterskins refilled ({water} pints)"
+      }
+    },
+    "Trade": {
+      "Title": "Trade: {actor} ⇄ {partner}",
+      "ChooseTitle": "Choose a trading partner",
+      "ChooseLabel": "Who should {actor} trade with?",
+      "Request": "Request trade",
+      "NoPartners": "Nobody within reach that {actor} could trade with.",
+      "InvalidPartner": "This token cannot trade.",
+      "NoResponder": "Nobody is around right now to trade for {partner}.",
+      "OutOfRange": "{actor} and {partner} are too far apart to trade.",
+      "Busy": "{actor} is already trading.",
+      "Asked": "Trade request sent to {partner}.",
+      "AskTitle": "Trade request",
+      "AskContent": "{user} wants to trade with {to} as {from}.",
+      "Accept": "Accept",
+      "Decline": "Decline",
+      "Withdraw": "Withdraw acceptance",
+      "Cancel": "Cancel trade",
+      "Declined": "{partner} declined the trade.",
+      "Expired": "{partner} did not answer the trade request.",
+      "Cancelled": "The trade was cancelled ({actor}).",
+      "Done": "Trade between {actor} and {partner} completed.",
+      "Blocked": "The trade did not go through: {actor} cannot carry everything that was offered. Adjust the offers.",
+      "Changed": "The trade did not go through because an offered item or the coins are no longer there. Check the offers.",
+      "Nothing": "Nothing was offered.",
+      "Failed": "Something went wrong while trading. Everything was reset.",
+      "Unavailable": "This trade is no longer available.",
+      "NotYours": "Only items of {actor} can be offered.",
+      "Mine": "{actor}'s offer (you)",
+      "Theirs": "{actor}'s offer",
+      "Accepted": "Accepted",
+      "Waiting": "Not accepted yet",
+      "EmptyMine": "Drag items from your inventory here or pick them below.",
+      "EmptyTheirs": "Nothing offered yet.",
+      "AddItem": "Offer an item …",
+      "Remove": "Remove from the offer",
+      "Contents": "+{count} contents",
+      "OfferTitle": "Offer: {name}",
+      "Hint": "Once both sides accept, the trade happens. Any change to an offer withdraws both acceptances.",
+      "Unknown": "Unknown",
+      "ChatTitle": "Trade completed",
+      "ChatSpeaker": "Trade",
+      "ChatGives": "{actor} gives {partner}:",
+      "ChatNothing": "nothing",
+      "NoOwnActor": "Select one of your tokens or assign a character to trade.",
+      "PlayerListHint": "Trade with a character or NPC in range.",
+      "Button": "Trade"
+    },
+    "Config": {
+      "Title": "Pack & Ledger: Settings",
+      "Menu": {
+        "Name": "Module settings",
+        "Label": "Open settings",
+        "Hint": "All settings of the module, neatly grouped."
+      },
+      "Tabs": {
+        "general": {
+          "Name": "General",
+          "Hint": "Exemptions for the GM, notifications and the log."
+        },
+        "containers": {
+          "Name": "Containers",
+          "Hint": "How much fits into backpacks, pouches and other containers, and what happens when they are overfilled."
+        },
+        "slots": {
+          "Name": "Body slots",
+          "Hint": "What may be carried directly on the body. Everything else has to go into a container."
+        },
+        "detection": {
+          "Name": "Detection",
+          "Hint": "How the module tells which slot an item belongs to."
+        },
+        "map": {
+          "Name": "Map & Trade",
+          "Hint": "Item piles on the map and trading between characters."
+        },
+        "weight": {
+          "Name": "Body weight",
+          "Hint": "Count part of the character's own body weight towards the carried load."
+        },
+        "currency": {
+          "Name": "Coins",
+          "Hint": "Log of coin changes, sums in the coin fields and invoices for the players."
+        },
+        "tracker": {
+          "Name": "Characters",
+          "Hint": "Track changes to player characters, save snapshots and restore them."
+        },
+        "provisions": {
+          "Name": "Provisions",
+          "Hint": "The group's food and water, stores such as a wagon, and eating at a long rest."
+        }
+      },
+      "Section": {
+        "Limits": "Slots and limits",
+        "LimitsHint": "How many items of each kind may be carried directly on the body. Hover a tile for details.",
+        "DetectTypes": "By dnd5e type",
+        "DetectNames": "By name (regular expressions)",
+        "Test": "Test the patterns",
+        "TestHint": "Enter an item name to see which patterns match. The first match wins.",
+        "Piles": "Item piles",
+        "Trade": "Trade",
+        "Secrets": "Hidden & locked",
+        "SecretsHint": "In the pile window, the GM can hide a pile or give it a lock (it is then shown as a chest).",
+        "CoinAudit": "Coin changes",
+        "CoinInput": "Coin fields on the character sheet",
+        "CoinChange": "Change",
+        "CoinChangeHint": "Which coins change is given in. Coins already in the purse are kept as far as possible.",
+        "Invoices": "Invoices",
+        "TrackerPrivate": "Confidential fields",
+        "ProvisionsNeed": "Need per day",
+        "ProvisionsNeedHint": "How much food and water a character needs each day.",
+        "ProvisionsNames": "Recognized by name",
+        "ProvisionsNamesHint": "Consumables of type food with the subtype food, water or both are always recognized. Other items count when their name matches one of these patterns (regular expressions, ignoring case).",
+        "ProvisionsRest": "Rest system",
+        "ProvisionsRestHint": "dnd5e handles the rest itself (hit points, hit dice, spell slots, uses). The module adds: the GM calls a rest for the group with the button below the player list. At a long rest the group shares out food and water together. At a short rest a button rolls hit dice automatically.",
+        "ProvisionsExhaustion": "Exhaustion from hunger and thirst",
+        "ProvisionsExhaustionHint": "Less than half the water gives one level of exhaustion, two levels for a character already exhausted. Exactly half calls for a Constitution save. Half a ration or less counts as half a day without food, nothing at all as a whole day. More days without food than allowed give exhaustion. A character short of food or water does not recover from exhaustion at that rest."
+      },
+      "Unit": {
+        "Squares": "squares",
+        "DC": "DC",
+        "Changes": "changes",
+        "Seconds": "s"
+      },
+      "Reset": "Reset to default",
+      "ResetAll": "Reset everything",
+      "ResetAllConfirm": "Reset all settings in this window to their defaults? Nothing is stored until you click \"Save\".",
+      "Unsaved": "Unsaved changes",
+      "Cancel": "Cancel",
+      "Save": "Save",
+      "SaveFailed": "The settings could not be saved (see the console for details).",
+      "InvalidRegex": "Invalid regular expression.",
+      "TestPlaceholder": "e.g. Robe, Unarmed Strike, Potion of Healing …",
+      "TestEmpty": "No name entered yet.",
+      "TestNone": "No pattern matches. The slot follows from the item type.",
+      "TestResult": {
+        "freePattern": "Free (no slot)",
+        "clothingPattern": "Clothing",
+        "jugPattern": "Jug (for containers)",
+        "trinketPattern": "Trinket"
+      }
+    },
+    "Lock": {
+      "Locked": "Locked",
+      "LockedHint": "Without the right key, the lock has to be picked.",
+      "UseKey": "Use key",
+      "Pick": "Pick the lock",
+      "PickHint": "Rolls a thieves' tools check.",
+      "NoKeyHint": "The right key is missing.",
+      "NoToolsHint": "This needs thieves' tools.",
+      "OutOfRangeHint": "Select one of your tokens within reach.",
+      "ByKey": "with \"{key}\"",
+      "ByPick": "lock picked (roll {total})",
+      "MysteryHint": "Opens any lock with a small chance and then disappears. One try per lock.",
+      "MysteryTriedHint": "This character already tried the key on this lock.",
+      "MysteryRollSuccess": "{key} on \"{pile}\" ({chance} % chance): the lock clicks open and the key vanishes!",
+      "MysteryRollFail": "{key} on \"{pile}\" ({chance} % chance): the key does not fit.",
+      "ByMystery": "with \"{key}\" (the key has vanished)"
+    },
+    "PileGM": {
+      "Title": "Game Master",
+      "Hidden": "Hidden",
+      "DiscoverDC": "Perception DC",
+      "HasLock": "Lock (show as a chest)",
+      "Locked": "Locked",
+      "Unlocked": "Unlocked",
+      "LockDC": "Lock DC",
+      "Key": "Key",
+      "KeyPlaceholder": "Name of the key item",
+      "Hint": "Empty DC fields use the defaults from the module settings. Hidden piles are found by Perception checks or by passive Perception within reach.",
+      "Coins": "Coins",
+      "Name": "Name",
+      "NameAuto": "Automatic: {name}",
+      "Identify": "Identify (players then see the real name)",
+      "Unidentify": "Mark as unidentified (players only see the unidentified name)",
+      "ShownAs": "Unidentified. Players see: {name}"
+    },
+    "LogApp": {
+      "Title": "Pack & Ledger: Log",
+      "Menu": {
+        "Name": "Log",
+        "Label": "Open log",
+        "Hint": "Shows the activity log and the module’s warnings and errors."
+      },
+      "Day": "Day",
+      "Filter": {
+        "all": "All",
+        "INFO": "Activity",
+        "WARN": "Warnings",
+        "ERROR": "Errors",
+        "character": "Characters"
+      },
+      "Search": "Search …",
+      "Refresh": "Reload",
+      "Empty": "No matching entries.",
+      "NoFiles": "There are no entries yet.",
+      "Disabled": "Writing the log is turned off in the settings. New entries are not saved.",
+      "Shown": "{shown} of {total} entries",
+      "User": "User",
+      "Actor": "Character",
+      "AllUsers": "All users",
+      "AllActors": "All characters",
+      "Download": "Download",
+      "Csv": "Save the shown entries as a CSV table",
+      "Level": {
+        "INFO": "Note",
+        "WARN": "Warning",
+        "ERROR": "Error"
+      },
+      "ItemAdded": "Received",
+      "ItemRemoved": "Removed",
+      "ConcentrationBegan": "Concentrating on",
+      "ConcentrationEnded": "Concentration ended",
+      "ConcentrationSwitched": "Concentration switched",
+      "ConcentrationBroken": "Concentration broken",
+      "Remove": {
+        "Button": "Delete entry",
+        "Title": "Delete entry",
+        "Hint": "Delete this entry for good? This cannot be undone.",
+        "Kept": "Some entries could not be deleted.",
+        "Failed": "Deleting failed. Details are in the browser console."
+      },
+      "DeleteDay": {
+        "Button": "Delete day",
+        "Title": "Delete day",
+        "Hint": "Delete every entry of the activity log of {day} for good? This cannot be undone."
+      }
+    },
+    "Coins": {
+      "Card": {
+        "Balance": "Balance"
+      },
+      "Reason": {
+        "Title": "Reason: {actor}",
+        "Hint": "{user} changed the coins of {actor}: {change}. Why? (optional)",
+        "Placeholder": "e.g. quest reward, correction, penalty …",
+        "Save": "Save reason"
+      },
+      "Log": {
+        "Converted": "Change made automatically",
+        "Suspicious": "Suspicious: {count} changes within {seconds} s"
+      },
+      "Input": {
+        "MathOff": "Other denominations in a sum are turned off.",
+        "ConvertOff": "Not enough {coin}. Making change automatically is turned off.",
+        "NotEnough": "{actor} does not have that much: {coins}."
+      }
+    },
+    "Invoice": {
+      "Tool": "Create invoice",
+      "Title": "Invoices",
+      "Drafts": "Invoices",
+      "AddActor": "Choose a character …",
+      "AddDraft": "Start an invoice for this character",
+      "RemoveDraft": "Delete draft",
+      "Lines": "{count} item(s)",
+      "Online": "player online",
+      "Offline": "player offline",
+      "Empty": "Choose a character on the left to start an invoice.",
+      "To": "To: {user}",
+      "NoRecipient": "No player of this character is online. The invoice can be prepared and sent later.",
+      "Purse": "Purse: {coins}",
+      "Note": "Note for the player",
+      "NotePlaceholder": "e.g. The Prancing Pony, two nights",
+      "Item": "Item",
+      "ItemPlaceholder": "Potion of healing",
+      "Cost": "Price",
+      "RemoveLine": "Remove item",
+      "AddLine": "Add item",
+      "CostHint": "Prices like 5 gp, 2 sp 5 cp, 3 gold 4 silver",
+      "DropHint": "Drop a template here",
+      "Total": "Total",
+      "TooExpensive": "More than the character has.",
+      "Send": "Send invoice",
+      "Waiting": "Waiting for an answer …",
+      "Templates": "Templates",
+      "Category": "Category",
+      "DefaultCategory": "General",
+      "AddTemplate": "New template in this category",
+      "RemoveTemplate": "Delete template",
+      "UseTemplate": "Add to the invoice",
+      "DragHint": "Drag into the invoice",
+      "NoTemplates": "No templates yet.",
+      "Closed": "{user} closed the invoice without deciding.",
+      "Declined": "{user} declines the invoice for {actor}.",
+      "Paid": "{user} paid for {actor}: {total}.",
+      "Query": {
+        "Title": "Invoice for {actor}",
+        "Intro": "{gm} sends you an invoice for {actor}:",
+        "Purse": "In the purse: {coins}. Change is given automatically.",
+        "Pay": "Pay",
+        "Decline": "Decline"
+      },
+      "Receipt": {
+        "Title": "Invoice paid",
+        "By": "{user} paid for {actor}."
+      },
+      "Log": {
+        "Total": "Total: {total}"
+      },
+      "Error": {
+        "NoName": "The price \"{cost}\" has no item.",
+        "Cost": "The price of \"{name}\" cannot be read. Examples: 5 gp, 2 sp 5 cp, 3 gold 4 silver.",
+        "Empty": "The invoice has no items.",
+        "Offline": "No player of {actor} is online right now.",
+        "CannotAfford": "{actor} cannot pay this: {total} (has {coins}).",
+        "Send": "The invoice could not be sent to {user}.",
+        "TooMany": "At most {max} invoices at a time.",
+        "Template": "The template needs a name and a price.",
+        "ChooseActor": "Choose a character first."
+      }
+    },
+    "CoinLog": {
+      "Title": "Coin log",
+      "Open": "Open the coin log",
+      "Menu": {
+        "Name": "Coin log",
+        "Label": "Open coin log",
+        "Hint": "Every coin change of player characters and every invoice as a table, with filters, reasons and export."
+      },
+      "AllDays": "All days",
+      "Search": "User, character, reason …",
+      "Filter": {
+        "Players": "Players only",
+        "Negative": "Deductions only",
+        "Flagged": "Suspicious only"
+      },
+      "ResetFilters": "Reset filters",
+      "Csv": "Save the shown entries as CSV",
+      "CopyAll": "Copy the shown entries as JSON",
+      "Column": {
+        "Time": "Time",
+        "User": "User",
+        "Actor": "Character",
+        "Source": "Source",
+        "Change": "Change",
+        "Balance": "New balance",
+        "Value": "Value",
+        "Reason": "Reason",
+        "Flags": "Flags"
+      },
+      "Source": {
+        "player": "Player",
+        "gm": "GM",
+        "invoicePaid": "Invoice paid",
+        "invoiceDeclined": "Invoice declined",
+        "invoiceFailed": "Invoice not paid",
+        "pileTake": "Taken from pile",
+        "pileDrop": "Dropped in pile",
+        "trade": "Trade"
+      },
+      "Details": "Details",
+      "Before": "Before",
+      "After": "After",
+      "Converted": "Change made",
+      "Yes": "Yes",
+      "No": "No",
+      "Id": "Entry",
+      "Invoice": "Invoice",
+      "IssuedBy": "issued by {gm}",
+      "Reason": "Reason (GM note)",
+      "SaveReason": "Save reason",
+      "CopyEntry": "Copy as JSON",
+      "DeleteEntry": "Delete entry",
+      "ReasonSaved": "Reason saved.",
+      "Copied": "Copied to the clipboard.",
+      "ActorGone": "This character no longer exists.",
+      "Delete": {
+        "Title": "Delete entry",
+        "Hint": "Delete this entry from the coin log for good, together with a reason added later? This cannot be undone."
+      },
+      "Empty": "No coin changes logged yet.",
+      "NoMatch": "No entries match the filters.",
+      "With": "with {name}",
+      "DeleteDayHint": "Delete every entry of the coin log of {day} for good? This cannot be undone."
+    },
+    "Tracker": {
+      "Title": "Character tracker",
+      "Snapshot": "Character snapshot",
+      "SnapshotOf": "Snapshot: {actor}",
+      "Save": "Save snapshot",
+      "SaveAll": "Save all characters",
+      "Saved": "{count} snapshots saved.",
+      "SavedAt": "Saved: {time}",
+      "Restore": "Restore",
+      "RestoreAll": "Restore all differences",
+      "Field": {
+        "Name": "Name",
+        "Image": "Image",
+        "HitPoints": "Hit points",
+        "TempHitPoints": "Temporary hit points",
+        "TempMaxHitPoints": "Temporary HP maximum",
+        "MaxHitPoints": "Maximum hit points",
+        "DeathSuccess": "Death saves (successes)",
+        "DeathFailure": "Death saves (failures)",
+        "Exhaustion": "Exhaustion",
+        "Inspiration": "Inspiration",
+        "ArmorClass": "Armor class",
+        "Experience": "Experience points",
+        "SpellSlots": "Spell slots level {level}",
+        "SpellSlotsMax": "Spell slots level {level} (maximum)",
+        "PactSlots": "Pact magic slots",
+        "Resource": "Resource \"{name}\"",
+        "ResourceMax": "Resource \"{name}\" (maximum)",
+        "Resourceprimary": "First resource",
+        "Resourcesecondary": "Second resource",
+        "Resourcetertiary": "Third resource",
+        "Ability": "Ability {ability}",
+        "Skill": "Skill {skill}",
+        "Quantity": "Quantity",
+        "UsesSpent": "Charges used",
+        "UsesMax": "Maximum charges",
+        "Equipped": "Equipped",
+        "Attuned": "Attuned",
+        "Prepared": "Prepared",
+        "Identified": "Identified",
+        "Container": "Container",
+        "HitDiceSpent": "Hit dice spent",
+        "Levels": "Levels",
+        "Weight": "Weight",
+        "Price": "Price",
+        "Description": "Description",
+        "ActivityUses": "Uses spent of \"{activity}\"",
+        "Activity": "Activity \"{activity}\"",
+        "ActivityUnnamed": "Activity",
+        "UnknownContainer": "(deleted container)",
+        "Save": "Saving throw {ability} (proficiency)"
+      },
+      "FieldColumn": "Field",
+      "Baseline": "Snapshot",
+      "Current": "Current",
+      "Concentration": "Concentration",
+      "ConcentrationBegan": "Concentration begun: {spell}",
+      "ConcentrationEnded": "Concentration ended: {spell}",
+      "ConcentrationBroken": "Concentration broken: {spell}",
+      "ConcentrationSwitched": "Concentration switched: {before} → {after}",
+      "NoSnapshot": "There is no snapshot of this character yet.",
+      "NoChanges": "No differences from the snapshot.",
+      "SnapshotInvalid": "The snapshot does not fit this character (other system or type).",
+      "ConfirmSave": "Overwrite this character's existing snapshot?",
+      "ConfirmSaveAll": "Save new snapshots for all tracked characters, including unlinked tokens? Existing ones are overwritten.",
+      "ConfirmRestore": "Restore the selected data from the snapshot? The current values are overwritten; this cannot be undone automatically.",
+      "Failed": "Character tracker: the action failed. See the log for details.",
+      "Yes": "Yes",
+      "No": "No",
+      "Changed": "changed",
+      "ItemAddedNamed": "Item received: {item}",
+      "ItemRemovedNamed": "Item removed: {item}",
+      "LogTitle": "Character changed",
+      "Spell": {
+        "NoSlotTitle": "Spell without a slot",
+        "NoSlot": "{spell} (level {level}) was cast without spending a spell slot.",
+        "Ritual": "The spell is a ritual and may have been cast as one.",
+        "Cast": "cast: {spell} (level {level})"
+      }
+    },
+    "LogTab": {
+      "Title": "Pack & Ledger",
+      "OpenLog": "Open the log (all days)",
+      "Empty": "No entries in the last 24 hours.",
+      "Activity": "Activity",
+      "Balance": "Balance: {coins}",
+      "Reason": "Reason: {reason}",
+      "Filter": {
+        "all": "All",
+        "activity": "Activity",
+        "coins": "Coins",
+        "character": "Characters"
+      }
+    },
+    "Provisions": {
+      "Title": "Group inventory",
+      "LogLine": "{uses}× {item} ({from})",
+      "Opened": "One of them is opened: {part} of it is used up already.",
+      "Empty": "No player characters and no stores found.",
+      "Total": "Total",
+      "NeedPerDay": "The group needs per day: {food} food, {water} water.",
+      "NeedOwn": "(from Pack & Ledger's settings)",
+      "Store": {
+        "Add": "Mark as a store of the group",
+        "Remove": "No longer a store of the group",
+        "Added": "“{actor}” is now a store of the group.",
+        "Removed": "“{actor}” is no longer a store of the group."
+      },
+      "Rest": {
+        "Title": "From the group's provisions",
+        "Eat": "Eat ({amount} missing)",
+        "Drink": "Drink ({amount} missing)",
+        "NoGM": "The group's provisions need a GM to be logged in.",
+        "Nothing": "There is none of it left in the group's provisions.",
+        "NotEnough": "The group's provisions are not quite enough.",
+        "Failed": "Nothing could be taken from the group's provisions. Details are in the browser console.",
+        "DialogTitle": "Eat and drink: {actor}",
+        "Continue": "Go on with the rest",
+        "External": "External source",
+        "ExternalLine": "{kind} from an external source",
+        "MagicLine": "{kind} from {item} ({from})",
+        "GMOnly": "Rests are called by the GM.",
+        "AutoHD": "Roll automatically",
+        "Starving": "Days without food: {days}. Exhausted from hunger.",
+        "Hungry": "Days without food: {days} of {max}.",
+        "Thirst": "Less than half the water: {levels} level(s) of exhaustion.",
+        "ThirstSaved": "Only half the water: Constitution save made.",
+        "ThirstFailed": "Only half the water: Constitution save failed, {levels} level(s) of exhaustion.",
+        "CardTitle": "Meals at the rest",
+        "CardFood": "Food: {had} of {need}",
+        "CardWater": "Water: {had} of {need}",
+        "GMOption": "Set by the GM when calling the rest.",
+        "Before": "Had before the rest: {food} food, {water} water"
+      },
+      "AddResource": "Drop an item here to track it",
+      "RemoveResource": "Stop tracking",
+      "ResourceAdded": "“{item}” is now tracked in the group provisions.",
+      "ResourceExists": "“{item}” is tracked already (or counts as food or water).",
+      "PresentShort": "with us",
+      "AwayShort": "away",
+      "StoreLabel": "Store of the group",
+      "Res": {
+        "Food": "Food",
+        "Water": "Water",
+        "Torch": "Torches",
+        "Oil": "Lamp oil",
+        "AlchemyJug": "Alchemy Jug",
+        "Tankard": "Tankard of Plenty"
+      },
+      "Overview": "Overview",
+      "OverviewLine": "Food and water last {days} day(s).",
+      "OverviewNone": "No daily need is set for food and water.",
+      "DaysCount": "{days} day(s)",
+      "AddShort": "Track an item",
+      "Refill": {
+        "Button": "Refill waterskins",
+        "Hint": "Refills all empty and partly used waterskins of the characters and of the stores with the group.",
+        "AllFull": "All waterskins of the group are full.",
+        "Done": "Waterskins refilled: {vessels} ({pints} pints).",
+        "LogLine": "{count}× {item} (+{pints} pints)"
+      },
+      "StoreEmpty": "Empty.",
+      "CarriesNothing": "Carries none of it.",
+      "Tab": {
+        "Characters": "Characters",
+        "Stores": "Stores"
+      },
+      "NoCharacters": "No player characters found.",
+      "NoStores": "The group has no store yet. The GM marks an actor (a wagon, a camp chest …) as a store with the button in its sheet's header.",
+      "Magic": {
+        "Note": "Magic sources each day: {jugs}× Alchemy Jug, {tankards}× Tankard of Plenty. Already counted in the days above.",
+        "JugHint": "Alchemy Jug: each day either half a ration for up to {food} people (never a full ration) or water for up to {water} people (4 pints each, a whole day).",
+        "TankardHint": "Tankard of Plenty: each day water for up to {water} people (4 pints each, a whole day)."
+      },
+      "OpenFromSheet": "Open the group inventory",
+      "StoreLocked": "“{actor}” is not with the group: you can look into it, but not take anything out or put anything in.",
+      "CallRest": {
+        "Button": "Call a rest",
+        "Title": "Call a rest for the group",
+        "Long": "Long rest",
+        "Short": "Short rest",
+        "Who": "Who rests",
+        "Supply": "Food and water (long rest)",
+        "JugMode": "Alchemy Jugs today give",
+        "SupplyHint": "A jug gives food or water for the whole day.",
+        "Jug": {
+          "auto": "Whatever runs out sooner",
+          "food": "Food (half a ration for 5)",
+          "water": "Water (for 16)"
+        },
+        "Advance": "Let the time pass",
+        "Started": "Rest called for {count} character(s).",
+        "NewDay": "New day",
+        "NewDayHint": "Uses that recharge at dawn, at dusk or on a new day are recovered. Alchemy Jugs and Tankards of Plenty give again.",
+        "RecoverTemp": "Remove temporary hit points",
+        "RecoverMax": "Recover max HP",
+        "RecoverMaxHint": "Removes any adjustments to the character's maximum hit points.",
+        "Hint": "Call a short or long rest for the group.",
+        "ExternalHint": "Gives food or water without using up items. How much is set in the module settings.",
+        "ExternalFood": "External food source",
+        "ExternalWater": "External water source",
+        "Options": "Options",
+        "RecoverMaxShort": "Max HP",
+        "Absent": "Away",
+        "AbsentHint": "The character is not with the group: it does not rest, and its provisions and magic items are not there for the others at this rest.",
+        "PlayerButton": "Rest"
+      },
+      "Session": {
+        "Title": "Meals at the rest",
+        "Hint": "Share out together who gets which food and water: with \"Add source\" you choose for each character what it eats and drinks.",
+        "Absent": "Not with the group (their provisions do not count): {names}",
+        "HintGM": "No player takes part. Share out the food and water and start the rest.",
+        "Before": "Had already today: {amount}",
+        "Enough": "Enough for the day",
+        "Half": "Only half: a Constitution save (water) or half a day without food",
+        "Short": "Too little: exhaustion threatens",
+        "AddSource": "Add a source",
+        "Remove": "Remove",
+        "LeftUses": "{n} left",
+        "LeftPlaces": "{n} place(s) left",
+        "Gone": "(no longer there)",
+        "RowShort": "Only {amount} of it: not enough is left, or this source is not allowed.",
+        "Propose": "Propose a sharing",
+        "ProposeHint": "The module proposes a sharing and replaces the current one. Everyone has to agree again afterwards.",
+        "Yes": "Agree",
+        "Agreed": "Agreed",
+        "No": "Disagree",
+        "Force": "Push the rest through",
+        "ForceHint": "Starts the rest now, even if not everyone has agreed.",
+        "ForceConfirm": "Not everyone has agreed yet: {names}. Start the rest anyway?",
+        "Start": "Start the rest",
+        "StartHint": "Hand out the food and water and start the rest.",
+        "Cancel": "Cancel the rest",
+        "Running": "The meals are handed out, the rest begins …",
+        "Failed": "The change could not be sent to the GM.",
+        "NoSource": "There is no further source for that.",
+        "Open": "Share out the meals at the rest",
+        "Button": "Meals",
+        "CarryFailed": "Not all meals of the rest could be handed out. Check the inventories (details in the log).",
+        "StartFailed": "The rests could not all be started. Check the characters (details in the log).",
+        "Interrupted": "A rest was interrupted while the meals were handed out, because the page was reloaded. It has been ended. Check the inventories and call the rest again if needed.",
+        "Replace": "The meals of another rest are still being shared out. Cancel that rest and call a new one?",
+        "CancelStuck": "If this takes too long, this ends the rest without handing out anything more."
+      }
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "id": "pack-and-ledger",
+  "title": "Pack & Ledger",
+  "version": "1.0.0",
+  "description": "<p>Inventory, coins and a character log for dnd5e. Backpacks, pouches and other containers enforce their capacity (weight/count), and only a few things may be carried directly on the body; everything else has to be stowed. Items on the map lie in item piles to take from and drop into, including coins, hidden piles and locked chests, and characters trade with each other in a trade window. Coin changes are logged, coin fields take sums such as “-50 copper” and make change, and the GM sends invoices to players. Changes to player characters are tracked with snapshots to restore them. Logs are kept in a world compendium accessible only to the GM, with entries shown live in a sidebar tab.</p><p>Inventar, Münzen und ein Charakter-Protokoll für dnd5e. Rucksäcke, Taschen und andere Behälter haben eine Traglast (Gewicht/Anzahl), und nur wenig darf direkt am Körper getragen werden; alles andere muss verstaut werden. Gegenstände auf der Karte liegen als Gegenstandshaufen, aus denen man nehmen und in die man ablegen kann, auch Münzen, versteckte Haufen und verschlossene Truhen, und Charaktere handeln über ein Tauschfenster miteinander. Münzänderungen werden protokolliert, Münzfelder rechnen mit Angaben wie „-50 kupfer“ und geben Wechselgeld, und die Spielleitung schickt Rechnungen an die Spieler. Änderungen an Spielercharakteren werden mit Snapshots zum Wiederherstellen verfolgt. Die Protokolle werden in einem Welt-Kompendium gespeichert, das nur die Spielleitung öffnen kann; die Einträge erscheinen live in einem eigenen Tab der Seitenleiste.</p>",
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.370"
+  },
+  "authors": [
+    {
+      "name": "Flashiiio",
+      "url": "https://github.com/Flashiiio",
+      "flags": {}
+    }
+  ],
+  "flags": {
+    "canUpload": false
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "dnd5e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "6.0.0",
+          "verified": "6.0.6"
+        }
+      }
+    ]
+  },
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json",
+      "flags": {}
+    },
+    {
+      "lang": "de",
+      "name": "Deutsch",
+      "path": "lang/de.json",
+      "flags": {}
+    }
+  ],
+  "esmodules": [
+    "scripts/pack-and-ledger.js"
+  ],
+  "styles": [
+    "style.css"
+  ],
+  "socket": true,
+  "url": "https://github.com/Flashiiio/Pack-and-Ledger",
+  "bugs": "https://github.com/Flashiiio/Pack-and-Ledger/issues",
+  "readme": "https://github.com/Flashiiio/Pack-and-Ledger#readme",
+  "license": "https://github.com/Flashiiio/Pack-and-Ledger/blob/main/LICENSE",
+  "changelog": "https://github.com/Flashiiio/Pack-and-Ledger/blob/main/CHANGELOG.md",
+  "manifest": "https://github.com/Flashiiio/Pack-and-Ledger/releases/latest/download/module.json",
+  "download": "https://github.com/Flashiiio/Pack-and-Ledger/releases/download/v1.0.0/pack-and-ledger.zip"
+}

@@ -1,0 +1,91 @@
+name: Bug Report
+description: Report an issue with Pack & Ledger
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug.
+        Please fill out the form below with as much detail as possible.
+
+  - type: textarea
+    attributes:
+      label: Summary
+      description: Briefly describe the issue you encountered.
+      placeholder: Provide a short description of the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Steps to reproduce
+      description: List the steps needed to reproduce the issue.
+      placeholder: |
+        1. Start Foundry VTT
+        2. Enable Pack & Ledger
+        3. Open a world with ...
+        4. Trigger ...
+        5. Observe the issue
+    validations:
+      required: true
+
+  - type: dropdown
+    attributes:
+      label: Foundry VTT environment
+      description: Select the environment in which Foundry VTT is running.
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Node.js
+        - Windows Portable
+        - Hosted / I don't know
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Foundry VTT version
+      description: Enter the exact Foundry VTT version.
+      placeholder: e.g. 14.370
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Game system and version
+      description: Enter the system name and version.
+      placeholder: e.g. dnd5e 6.0.6
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Pack & Ledger version
+      description: Enter the installed Pack & Ledger version.
+      placeholder: e.g. 1.4.0
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Logs, screenshots, or troubleshooting output
+      description: |
+        Include any relevant console errors, warnings, screenshots.
+
+        Tip: You can also drag and drop images or log files into this field.
+      placeholder: |
+        Console errors / warnings:
+        - ...
+
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Before submitting
+      description: Please confirm the following before submitting your report.
+      options:
+        - label: I have included all relevant version and environment information
+          required: true

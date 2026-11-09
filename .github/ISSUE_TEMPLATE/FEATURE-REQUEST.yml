@@ -1,0 +1,34 @@
+name: Feature Request
+description: Suggest an idea or improvement for Pack & Ledger
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to suggest an improvement.
+        Please fill out the form below with as much detail as possible.
+
+  - type: textarea
+    attributes:
+      label: Feature request
+      description: Describe the idea, what problem it solves, and how you would like it to work.
+      placeholder: Explain your suggestion here.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Additional details
+      description: Add any extra context, examples, screenshots, or references here.
+      placeholder: Optional
+    validations:
+      required: false
+
+  - type: checkboxes
+    attributes:
+      label: Before submitting
+      description: Please confirm the following before submitting your request.
+      options:
+        - label: I have checked existing issues and feature requests to make sure this has not already been suggested
+          required: true
