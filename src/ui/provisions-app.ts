@@ -2,8 +2,15 @@ import { esc, loc } from "./helpers.js";
 import { restSession } from "../feature/provisions/rest-session.js";
 import { openRestMealApp } from "./rest-meal-app.js";
 import {
+  accountName, canWithdraw, depositors, isEmptyAccount, fundAccounts, fundMode, fundOf, holdingOf, openAccountDialog,
+  openDepositDialog, openWithdrawDialog, requestAccount, requestAccountSplit
+} from "../feature/currency/party-fund.js";
+import { MAIN_ACCOUNT, accountOf } from "../core/policy/fund-rules.js";
+import { add as addCoins, emptyCoins, isZero } from "../feature/currency/coins.js";
+import { coinsHtml, locCoins } from "./coin-html.js";
+import {
   DAYS_CAP, JUG_FOOD_PEOPLE, JUG_WATER_PEOPLE, TANKARD_WATER_PEOPLE, addResource, countResource, dailyNeed, daysOfSupply,
-  listedItems, magicSources, ownRestActive, partyMembers, partyStores, provisionsActive, refillWater, refillableCount, removeResource,
+  listedItems, magicSources, partyMembers, partyStores, provisionsActive, refillWater, refillableCount, removeResource,
   resourceLabel, setStore, storeState, supplyOf, trackedResources,
   type ListedItem
 } from "../feature/provisions/provisions.js";
@@ -54,6 +61,12 @@ function getProvisionsAppClass() {
         openItem: PackLedgerProvisionsApp.#onOpenItem,
         removeResource: PackLedgerProvisionsApp.#onRemoveResource,
         openMeals: () => openRestMealApp(),
+        splitFund: (event: any, target: HTMLElement) => requestAccountSplit(target.dataset.accountId ?? ""),
+        depositFund: (event: any, target: HTMLElement) => openDepositDialog(undefined, target.dataset.accountId),
+        withdrawFund: PackLedgerProvisionsApp.#onWithdrawFund,
+        newAccount: () => openAccountDialog(),
+        renameAccount: (event: any, target: HTMLElement) => openAccountDialog(target.dataset.accountId),
+        deleteAccount: PackLedgerProvisionsApp.#onDeleteAccount,
         refillWater: PackLedgerProvisionsApp.#onRefillWater,
         switchList: PackLedgerProvisionsApp.#onSwitchList
       }
@@ -64,7 +77,7 @@ function getProvisionsAppClass() {
     }
 
     /** The list shown below the overview: the characters or the stores. */
-    #tab: "characters" | "stores" = "characters";
+    #tab: "characters" | "stores" | "fund" = "characters";
 
     async _renderHTML() {
       const members = partyMembers();
@@ -104,6 +117,10 @@ function getProvisionsAppClass() {
       const magicNote = (magic.jugs || magic.tankards) ? `<p class="pl-provisions-note"><i class="fa-solid fa-wand-sparkles" inert></i>
             ${esc(loc("Provisions.Magic.Note", { jugs: magic.jugs, tankards: magic.tankards }))}</p>` : "";
 
+      // The group fund has a tab of its own, unless it is switched off.
+      const fundOn = fundMode() !== "off";
+      if ( !fundOn && (this.#tab === "fund") ) this.#tab = "characters";
+
       const empty = game.user.isGM ? refillableCount() : 0;
       const refill = game.user.isGM ? `<div class="pl-provisions-actions">
           <button type="button" data-action="refillWater"${empty ? "" : " disabled"}
@@ -111,10 +128,10 @@ function getProvisionsAppClass() {
             <i class="fa-solid fa-droplet" inert></i> ${esc(loc("Provisions.Refill.Button"))}${empty ? ` <span class="count">${empty}</span>` : ""}</button>
         </div>` : "";
 
-      const tab = (id: "characters" | "stores", icon: string, label: string, count: number) =>
+      const tab = (id: "characters" | "stores" | "fund", icon: string, label: string, count: number) =>
         `<button type="button" class="${this.#tab === id ? "active" : ""}" data-action="switchList" data-list="${id}" aria-pressed="${this.#tab === id}">
           <i class="fa-solid ${icon}" inert></i> ${esc(loc(label))} <span class="count">${count}</span></button>`;
-      const list = (this.#tab === "stores")
+      const list = (this.#tab === "fund") ? this.#fundList(members) : (this.#tab === "stores")
         ? (stores.length ? stores.map(actor => this.#card(actor, listedItems(actor, { all: true }), true)).join("")
           : `<p class="pl-provisions-empty">${esc(loc("Provisions.NoStores"))}</p>`)
         : (others.length ? others.map(actor => this.#card(actor, listedItems(actor), false)).join("")
@@ -141,12 +158,65 @@ function getProvisionsAppClass() {
           <nav class="pl-tabs" role="tablist">
             ${tab("characters", "fa-users", "Provisions.Tab.Characters", others.length)}
             ${tab("stores", "fa-caravan", "Provisions.Tab.Stores", stores.length)}
+            ${fundOn ? tab("fund", "fa-sack-dollar", "Provisions.Tab.Fund", fundAccounts().length) : ""}
           </nav>
         </section>
         <div class="pl-provisions-cards">${list}</div>
         ${this.#sessionBar()}
 `;
       return root;
+    }
+
+    /** The group fund: in all, then a card per purpose with what each character has put in for it. */
+    #fundList(members: any[]): string {
+      const total = members.reduce((sum: any, a: any) => addCoins(sum, fundOf(a)), emptyCoins());
+      const canPay = depositors().length > 0;
+      const summary = `<section class="pl-provisions-card pl-fund-summary">
+          <header><i class="fa-solid fa-sack-dollar" inert></i>
+            <span class="name">${locCoins("Fund.Total", {}, total, loc("Fund.None"))}</span></header>
+          ${(canPay || game.user.isGM) ? `<div class="pl-fund-actions">
+            ${canPay ? `<button type="button" data-action="depositFund"><i class="fa-solid fa-piggy-bank" inert></i> ${esc(loc("Fund.Deposit"))}</button>` : ""}
+            <button type="button" data-action="newAccount"><i class="fa-solid fa-plus" inert></i> ${esc(loc("Fund.NewAccount"))}</button>
+          </div>` : ""}
+        </section>`;
+      const cards = fundAccounts().map(account => {
+        const id = account.id;
+        const holders = members.filter(m => !isZero(holdingOf(m, id)));
+        const sum = holders.reduce((all: any, m: any) => addCoins(all, holdingOf(m, id)), emptyCoins());
+        // Small icon buttons, their names as tooltips.
+        const button = (action: string, icon: string, label: string, tooltip = label, extra = "") =>
+          `<button type="button" class="icon" data-action="${action}" data-account-id="${id}"${extra}
+            data-tooltip="${esc(tooltip)}" aria-label="${esc(label)}"><i class="fa-solid ${icon}" inert></i></button>`;
+        const buttons = [
+          canPay ? button("depositFund", "fa-piggy-bank", loc("Fund.Deposit")) : "",
+          // Only coins of the own characters are shared out.
+          ((members.length > 1) && holders.some(m => m.isOwner))
+            ? button("splitFund", "fa-scale-balanced", loc("Fund.Split")) : "",
+          (canPay || game.user.isGM) ? button("renameAccount", "fa-pen", loc("Fund.RenameAccount")) : "",
+          // Players remove only purposes without coins.
+          ((id !== MAIN_ACCOUNT) && (game.user.isGM || (canPay && isEmptyAccount(id))))
+            ? button("deleteAccount", "fa-trash", loc("Fund.DeleteAccount"), `${loc("Fund.DeleteAccount")}: ${loc("Fund.DeleteHint")}`) : ""
+        ].join("");
+        // A row per character with coins on the account: the sum only, and taking coins out.
+        const rows = holders.map(m => {
+          const out = canWithdraw(m, id) ? `<button type="button" class="icon" data-action="withdrawFund" data-account-id="${id}"
+              data-actor-id="${m.id}" data-tooltip="${esc(loc("Fund.Withdraw"))}" aria-label="${esc(loc("Fund.Withdraw"))}">
+              <i class="fa-solid fa-hand-holding-dollar" inert></i></button>` : "";
+          return `<li>
+            <a data-action="openActor" data-actor-id="${m.id}"><img src="${esc(m.img)}" alt=""><span class="name">${esc(m.name)}</span></a>
+            <span class="pl-fund-holding">${coinsHtml(holdingOf(m, id))}</span>${out}</li>`;
+        }).join("");
+        return `<section class="pl-provisions-card pl-fund-card">
+          <header>
+            <i class="fa-solid fa-sack-dollar pl-fund-icon" inert></i>
+            <span class="name">${esc(accountName(account))}</span>
+            ${buttons ? `<div class="pl-fund-buttons">${buttons}</div>` : ""}
+          </header>
+          <div class="pl-fund-coins">${isZero(sum) ? `<span class="pl-none">${esc(loc("Fund.None"))}</span>` : coinsHtml(sum)}</div>
+          ${rows ? `<ul class="pl-items pl-fund-rows">${rows}</ul>` : ""}
+        </section>`;
+      }).join("");
+      return summary + cards;
     }
 
     /** While the meals of a called rest are shared out: a way back to that window for those taking part. */
@@ -205,7 +275,8 @@ function getProvisionsAppClass() {
     }
 
     static #onSwitchList(this: any, event: any, target: HTMLElement) {
-      const tab = (target.dataset.list === "stores") ? "stores" : "characters";
+      const list = target.dataset.list;
+      const tab = (list === "stores" || list === "fund") ? list : "characters";
       if ( tab === this.#tab ) return;
       this.#tab = tab;
       this.render();
@@ -235,6 +306,22 @@ function getProvisionsAppClass() {
       } finally {
         this.render();
       }
+    }
+
+    static #onWithdrawFund(this: any, event: any, target: HTMLElement) {
+      const actor = game.actors.get(target.dataset.actorId ?? "");
+      if ( actor ) openWithdrawDialog(actor, target.dataset.accountId);
+    }
+
+    static async #onDeleteAccount(this: any, event: any, target: HTMLElement) {
+      const account = accountOf(target.dataset.accountId ?? "");
+      if ( !account || !game.user.isGM ) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Fund.DeleteAccount"), icon: "fa-solid fa-trash" },
+        content: `<p>${esc(loc("Fund.DeleteConfirm", { account: accountName(account) }))}</p>`,
+        rejectClose: false
+      });
+      if ( yes ) requestAccount("delete", { id: account.id });
     }
 
     static async #onRemoveResource(this: any, event: any, target: HTMLElement) {

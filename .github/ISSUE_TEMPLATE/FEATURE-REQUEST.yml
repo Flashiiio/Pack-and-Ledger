@@ -12,7 +12,7 @@ body:
   - type: textarea
     attributes:
       label: Feature request
-      description: Describe the idea, what problem it solves, and how you would like it to work.
+      description: Describe the problem you want to solve and how the proposed feature would help.
       placeholder: Explain your suggestion here.
     validations:
       required: true

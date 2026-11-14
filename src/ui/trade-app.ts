@@ -1,4 +1,5 @@
 import { loc } from "./helpers.js";
+import { confirmFundGive } from "./fund-warning.js";
 import { promptOfferQuantity, sendAccept, sendCancel, sendOffer } from "../feature/trade/client.js";
 import { CURRENCIES, isTradeable } from "../core/policy/trade-rules.js";
 
@@ -95,7 +96,7 @@ function getTradeAppClass() {
         this.#offerItem(item);
       });
       for ( const input of this.element.querySelectorAll("input.trade-coin") ) {
-        input.addEventListener("change", () => this.#sendOffer());
+        input.addEventListener("change", () => this.#offerCoins());
       }
     }
 
@@ -262,6 +263,18 @@ function getTradeAppClass() {
         currency[input.name] = Math.max(0, Math.floor(Number(input.value) || 0));
       }
       return currency;
+    }
+
+    /** Coins changed: offering coins assigned to an account of the group fund is asked about first. */
+    async #offerCoins() {
+      const currency = this.#currentCurrency();
+      if ( this.actor && !(await confirmFundGive(this.actor, currency)) ) {
+        for ( const input of this.element?.querySelectorAll("input.trade-coin") ?? [] ) {
+          input.value = String(this.mine.currency[input.name] ?? 0);
+        }
+        return;
+      }
+      this.#sendOffer();
     }
 
     #sendOffer(items=this.#currentItems()) {

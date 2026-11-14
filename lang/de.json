@@ -8,8 +8,8 @@
       "tool": "Werkzeuge",
       "backpack": "Rucksäcke",
       "jug": "Krug",
-      "trinket": "Trinkets",
-      "free": "Frei (wird nicht angerechnet)",
+      "trinket": "Kleingegenstände",
+      "free": "Frei (belegt keinen Platz)",
       "stow": "Muss verstaut werden",
       "auto": "Automatisch ({slot})",
       "autoNone": "Automatisch (muss verstaut werden)"
@@ -17,12 +17,13 @@
     "Summary": {
       "Unstowed": "Nicht verstaut",
       "Manage": "Inventarplätze zuweisen",
-      "Tidy": "Aufräumen: fehlplatzierte Gegenstände in Behälter verstauen"
+      "Tidy": "Aufräumen: nicht verstaute Gegenstände in Behälter legen"
     },
     "Context": {
       "SetSlot": "Inventarplatz festlegen",
       "Repair": "Behälter reparieren",
-      "Drop": "Auf den Boden legen"
+      "Drop": "Auf den Boden legen",
+      "Refill": "Auffüllen"
     },
     "Tear": {
       "TornSuffix": "zerrissen",
@@ -46,14 +47,18 @@
       "OverflowWeight": "„{item}“ passt nicht in „{container}“: {value}/{max} {units}.",
       "MustStow": "„{item}“ kann nicht direkt am Körper getragen werden und muss in einem Behälter verstaut werden.",
       "SlotFull": "Kein freier Platz für „{item}“: {slot} ({max}/{max}) ist bereits belegt.",
-      "SlotWeight": "„{item}“ ist mit {value} {units} zu schwer, um als {slot} am Körper getragen zu werden (muss leichter als {max} {units} sein). Bitte verstauen.",
+      "SlotWeight": "„{item}“ wiegt {value} {units} und ist für den Platz „{slot}“ zu schwer. Erlaubt sind weniger als {max} {units}. Verstaue den Gegenstand in einem Behälter.",
       "NoStowTarget": "Es ist kein Behälter mit ausreichend Platz vorhanden.",
       "Stowed": "„{item}“ wurde automatisch in „{container}“ verstaut.",
       "StowedMany": "{count} Gegenstände wurden automatisch verstaut: {list}",
-      "Overfilled": "„{container}“ ist um {percent} % überfüllt und könnte reißen! (Risiko {chance} % bei jedem weiteren Einlagern)",
-      "OverfillLimit": "„{item}“ passt nicht in „{container}“: Der Behälter wäre um {percent} % überfüllt (höchstens {limit} % erlaubt).",
+      "Overfilled": "„{container}“ ist überfüllt und könnte reißen!",
+      "OverfillLimit": "„{item}“ passt nicht in „{container}“: Der Behälter wäre zu stark überfüllt.",
       "Torn": "„{container}“ ist gerissen! Der Inhalt liegt verstreut auf dem Boden.",
       "TornContainer": "„{container}“ ist zerrissen und kann nichts mehr aufnehmen.",
+      "WrongContent": "„{item}“ kann nicht in „{container}“ verstaut werden. Dieser Behälter nimmt nur Folgendes auf: {holds}.",
+      "AmmoOnly": "„{item}“ kann nicht in „{container}“: Pfeile und Armbrustbolzen gehören nur in einen Köcher, einen Armbrustbolzenkasten oder Ehlonnas Köcher.",
+      "AmmoContainerWorn": "„{item}“ kann nicht in „{container}“: Köcher und andere Munitionsbehälter werden am Körper getragen.",
+      "CompartmentFull": "„{item}“ passt nicht in „{container}“: {value}/{max} {what}.",
       "NoGM": "Dafür muss eine Spielleitung online sein.",
       "NoPickupActor": "Wähle zuerst ein eigenes Token aus, das den Gegenstand aufheben soll.",
       "AlreadyPicked": "Dieser Gegenstand wurde bereits aufgehoben.",
@@ -63,7 +68,7 @@
       "OutOfRange": "{actor} ist zu weit vom Haufen entfernt.",
       "BodyPart": "„{item}“ ist Teil des Körpers und kann nicht abgelegt werden.",
       "SlotGMOnly": "Nur die Spielleitung kann Inventarplätze zuweisen.",
-      "PileLocked": "Das ist verschlossen.",
+      "PileLocked": "Dieser Haufen oder diese Truhe ist verschlossen.",
       "NoCoins": "{actor} hat keine Münzen.",
       "Discovered": "{actor} hat etwas entdeckt: {pile}",
       "NoKey": "{actor} hat keinen passenden Schlüssel.",
@@ -71,21 +76,87 @@
       "PickFailed": "{actor} kann das Schloss von „{pile}“ nicht knacken.",
       "Unlocked": "{actor} hat „{pile}“ geöffnet.",
       "NoMysteryKey": "{actor} hat keinen mysteriösen Schlüssel.",
-      "MysteryKeyTried": "{actor} hat den mysteriösen Schlüssel an diesem Schloss schon versucht.",
+      "MysteryKeyTried": "{actor} hat den mysteriösen Schlüssel bereits an diesem Schloss ausprobiert.",
       "MysteryKeyFailed": "„{key}“ öffnet das Schloss für {actor} nicht.",
       "NoCoinsChosen": "Keine Münzen ausgewählt. Trage eine Anzahl ein oder klicke auf „Alle“.",
       "DropCoinsFailed": "Die Münzen konnten nicht abgelegt werden.",
       "RequestFailed": "Das hat nicht geklappt: {error}.",
-      "NoCoinsHere": "Hier liegen keine Münzen (mehr)."
+      "NoCoinsHere": "Hier liegen keine Münzen mehr.",
+      "SplitNotMember": "{actor} gehört nicht zu den Spielercharakteren der Gruppe und kann keine Münzen aufteilen.",
+      "SplitChanged": "Die Gruppe hat sich inzwischen geändert. Bitte die Münzen noch einmal aufteilen.",
+      "SplitDone": "{coins} wurden unter {count} Charakteren aufgeteilt: je {share}.",
+      "SplitDoneRest": "{coins} wurden unter {count} Charakteren aufgeteilt: je {share}; {actor} bekommt zusätzlich {rest}.",
+      "WaterOnly": "„{item}“ kann nicht in „{container}“: In einen Wasserschlauch passt nur Wasser.",
+      "NoCoinsInto": "In „{container}“ passen keine Münzen.",
+      "NoOpenActor": "Wähle zuerst ein eigenes Token aus, das den Haufen öffnen soll.",
+      "OutOfRangeOpen": "{actor} ist zu weit vom Haufen entfernt, um ihn zu öffnen. Geh näher heran.",
+      "PileClosedOutOfRange": "{actor} hat sich zu weit von „{pile}“ entfernt; das Fenster wurde geschlossen."
+    },
+    "Overfill": {
+      "Title": "Behälter überfüllen?",
+      "Content": "„{container}“ ist voll. Wenn du „{item}“ trotzdem hineinlegst, kann der Behälter reißen und sein Inhalt auf den Boden fallen. Trotzdem hineinlegen?"
+    },
+    "AmmoContainers": {
+      "Pack": "Pack & Ledger Behälter",
+      "Holds": {
+        "quiver": "Pfeile",
+        "boltCase": "Armbrustbolzen",
+        "ehlonna": "Munition, Wurfspeere und Ähnliches sowie Langwaffen wie Bögen, Speere oder Kampfstäbe",
+        "needleCase": "Blasrohrnadeln",
+        "slingPouch": "Schleuderkugeln",
+        "ammoPouch": "Feuerwaffenkugeln",
+        "dartCase": "Wurfpfeile",
+        "javelinQuiver": "Wurfspeere",
+        "knifeSheath": "Wurfmesser und Dolche"
+      },
+      "Compartment": {
+        "arrows": "Pfeile",
+        "bolts": "Armbrustbolzen",
+        "ammunition": "Munition",
+        "javelins": "Wurfspeere und Ähnliches",
+        "long": "Langwaffen",
+        "needles": "Blasrohrnadeln",
+        "slingBullets": "Schleuderkugeln",
+        "firearmBullets": "Feuerwaffenkugeln",
+        "darts": "Wurfpfeile",
+        "javelinsOnly": "Wurfspeere",
+        "knives": "Wurfmesser und Dolche"
+      },
+      "Items": {
+        "needleCase": {
+          "Name": "Nadeletui",
+          "Description": "Ein schmales Etui für Blasrohrnadeln. Es fasst bis zu 50 Nadeln und sonst nichts."
+        },
+        "slingPouch": {
+          "Name": "Schleuderkugelbeutel",
+          "Description": "Ein Beutel für Schleuderkugeln. Er fasst bis zu 20 Kugeln und sonst nichts."
+        },
+        "ammoPouch": {
+          "Name": "Munitionsbeutel",
+          "Description": "Ein Beutel für Feuerwaffenkugeln. Er fasst bis zu 10 Kugeln und sonst nichts."
+        },
+        "dartCase": {
+          "Name": "Wurfpfeiletui",
+          "Description": "Ein Etui für Wurfpfeile. Es fasst bis zu 10 Wurfpfeile und sonst nichts."
+        },
+        "javelinQuiver": {
+          "Name": "Wurfspeerköcher",
+          "Description": "Ein Köcher für Wurfspeere, der auf dem Rücken getragen wird. Er fasst bis zu 5 Wurfspeere und sonst nichts."
+        },
+        "knifeSheath": {
+          "Name": "Wurfmesserscheide",
+          "Description": "Eine Scheide für Wurfmesser und Dolche. Sie fasst bis zu 6 davon und sonst nichts."
+        }
+      }
     },
     "Settings": {
       "enforceCapacity": {
-        "Name": "Behälter-Traglast erzwingen",
-        "Hint": "Verhindert das Einlagern, wenn die Kapazität (Gewicht oder Anzahl) eines Behälters oder eines übergeordneten Behälters überschritten würde."
+        "Name": "Kapazitätsgrenzen von Behältern durchsetzen",
+        "Hint": "Verhindert das Verstauen, wenn dadurch die Gewichts- oder Stückzahlgrenze eines Behälters überschritten würde. Das gilt auch für übergeordnete Behälter. Die Regeln für Wasserschläuche und Munitionsbehälter gelten unabhängig von dieser Einstellung."
       },
       "notifyLevel": {
         "Name": "Benachrichtigungen",
-        "Hint": "Nur wichtige: Warnungen (z. B. kein Platz, außer Reichweite) und Handelsabsagen\nAlle: zusätzlich Meldungen über Aufheben, automatisches Verstauen, Aufräumen, abgeschlossene Tausche und neue Protokolleinträge\nGilt für alle Spieler und die Spielleitung.",
+        "Hint": "Nur wichtige: Warnungen (z. B. bei Platzmangel oder zu großer Entfernung) sowie abgelehnte und abgebrochene Handelsanfragen.\nAlle: zusätzlich Meldungen zum Aufheben, automatischen Verstauen, Aufräumen, zu abgeschlossenen Handelsvorgängen und neuen Protokolleinträgen.\nGilt für alle Spieler und die Spielleitung.",
         "Important": "Nur wichtige",
         "All": "Alle"
       },
@@ -97,11 +168,15 @@
       },
       "overfillHardLimit": {
         "Name": "Maximale Überfüllung (%)",
-        "Hint": "Über diesen Prozentsatz hinaus kann ein Behälter auch im Reißrisiko-Modus nicht gefüllt werden. 0 = keine Grenze."
+        "Hint": "Legt fest, um wie viel Prozent die Kapazität höchstens überschritten werden darf. Diese Grenze gilt auch bei „Überfüllen mit Reißrisiko“. 0 = keine Grenze."
       },
       "tearChanceFactor": {
         "Name": "Reißrisiko-Faktor",
         "Hint": "Reißwahrscheinlichkeit in % = Überfüllung in % × Faktor. Bei Faktor 1 reißt ein um 25 % überfüllter Behälter mit 25 % Wahrscheinlichkeit, ab 100 % Überfüllung immer."
+      },
+      "ammoContainers": {
+        "Name": "Munitionsbehälter nehmen nur ihre Munition auf",
+        "Hint": "Ein Köcher fasst nur Pfeile (bis zu 20), ein Armbrustbolzenkasten nur Bolzen (bis zu 20). Ehlonnas Köcher bietet gleichzeitig Platz für 60 Pfeile, Bolzen oder ähnliche Munition, 18 Wurfspeere oder ähnliche Gegenstände und 6 Langwaffen, etwa Bögen, Speere oder Kampfstäbe. Sein Inhalt zählt nicht zum Gewicht. Pfeile und Armbrustbolzen müssen in einem dieser passenden Behälter verstaut werden. Auch die zusätzlichen Munitionsbehälter des Moduls nehmen nur die jeweils vorgesehene Munition auf; ihre Verwendung ist optional. Alle Munitionsbehälter werden am Körper getragen, können nicht in anderen Behältern verstaut und nicht überfüllt werden. Daher reißen sie nicht."
       },
       "enforceSlots": {
         "Name": "Plätze am Körper begrenzen",
@@ -115,7 +190,7 @@
       },
       "autoStow": {
         "Name": "Automatisch verstauen",
-        "Hint": "Gegenstände, die nicht am Körper getragen werden dürfen, werden beim Hinzufügen automatisch in den ersten Behälter mit ausreichend Platz gelegt, statt abgelehnt zu werden."
+        "Hint": "Verstaut neu hinzugefügte Gegenstände ohne passenden Platz am Körper automatisch im ersten geeigneten Behälter mit ausreichend Platz. Ist kein solcher Behälter vorhanden, wird das Hinzufügen abgelehnt. Neue Behälter selbst werden nicht automatisch verstaut."
       },
       "gmBypass": {
         "Name": "Spielleitung ausnehmen",
@@ -123,11 +198,11 @@
       },
       "fileLog": {
         "Name": "Protokoll schreiben",
-        "Hint": "Schreibt das Aktivitätsprotokoll sowie Warnungen und Fehler des Moduls in das Kompendium „Pack & Ledger Logs“. Nur die Spielleitung kann es öffnen; lesen lässt es sich im Protokoll-Fenster. Geschrieben wird nur, wenn eine Spielleitung angemeldet ist. Warnungen von Spielern werden an sie geschickt."
+        "Hint": "Speichert Aktivitäten, Charakteränderungen sowie Warnungen und Fehler im Kompendium „Pack & Ledger Logs“. Nur die Spielleitung kann es öffnen und die Einträge im Protokoll-Fenster lesen. Neue Einträge werden nur bei angemeldeter Spielleitung gespeichert. Technische Warnungen auf Spielerseite werden an sie weitergeleitet."
       },
       "logRetentionDays": {
-        "Name": "Protokoll behalten (Tage)",
-        "Hint": "Einträge (Aktivität und Münzen), die älter als so viele Tage sind, werden gelöscht, wenn sich die Spielleitung anmeldet. 0 behält alles."
+        "Name": "Aufbewahrungsdauer der Protokolle (Tage)",
+        "Hint": "Löscht ältere Einträge aus dem Aktivitäts- und Münz-Protokoll, sobald sich die Spielleitung anmeldet. Der Wert legt das Höchstalter in Tagen fest. 0 = alle Einträge behalten."
       },
       "limitWeapon": {
         "Name": "Max. Waffen am Körper",
@@ -158,28 +233,28 @@
         "Hint": "Behälter, deren Name dem Krug-Muster entspricht."
       },
       "limitTrinket": {
-        "Name": "Max. Trinkets am Körper",
-        "Hint": "Kleinkram am Körper: Ringe, Zauberfokus, heilige Symbole, Tränke, Heilerausrüstung usw."
+        "Name": "Max. Kleingegenstände am Körper",
+        "Hint": "Kleine Gegenstände wie Ringe, Zauberfokusse, heilige Symbole, Tränke und Heilerausrüstung."
       },
       "limitTrinketWeight": {
-        "Name": "Trinket-Gewichtsgrenze (lb)",
-        "Hint": "Nur Gegenstände, die (pro Stück) leichter als dieser Wert sind, gelten als Trinket. Schwerere müssen verstaut werden.\n0 = keine Grenze."
+        "Name": "Gewichtsgrenze für Kleingegenstände (lb)",
+        "Hint": "Nur Gegenstände, die pro Stück weniger als diesen Wert wiegen, zählen als Kleingegenstände. Gegenstände ab diesem Gewicht müssen verstaut werden.\n0 = keine Grenze."
       },
       "trinketEquipmentTypes": {
-        "Name": "Trinket: Ausrüstungstypen",
-        "Hint": "Ausrüstungstypen (dnd5e-Schlüssel, durch Komma getrennt), die als Trinket zählen. Standard: trinket, ring, rod, wand. Zauberfokusse wie Kristall, Kugel, Rute und Zauberstab gehören in dnd5e zu diesen Typen."
+        "Name": "Kleingegenstände: Ausrüstungstypen",
+        "Hint": "Ausrüstungstypen, die als Kleingegenstände zählen. Gib die dnd5e-Schlüssel durch Komma getrennt ein. Standard: trinket, ring, rod, wand. Dazu gehören Zauberfokusse wie Kristalle, Kugeln, Ruten und Zauberstäbe."
       },
       "trinketConsumableTypes": {
-        "Name": "Trinket: Verbrauchsgut-Typen",
-        "Hint": "Verbrauchsgut-Typen (durch Komma getrennt), die als Trinket zählen. Standard: potion, trinket. Damit zählen Tränke und Heilerausrüstung als Trinket."
+        "Name": "Kleingegenstände: Verbrauchsguttypen",
+        "Hint": "Verbrauchsguttypen, die als Kleingegenstände zählen. Gib die dnd5e-Schlüssel durch Komma getrennt ein. Standard: potion, trinket. Damit zählen Tränke und Heilerausrüstung als Kleingegenstände."
       },
       "trinketPattern": {
-        "Name": "Trinket: Namensmuster (Regex)",
-        "Hint": "Gegenstände, deren Name auf diesen regulären Ausdruck passt, zählen unabhängig vom Typ zusätzlich als Trinket (z. B. Heiliges Symbol, Arkaner Fokus, Heilerausrüstung)."
+        "Name": "Kleingegenstände: Namensmuster (Regex)",
+        "Hint": "Gegenstände mit einem Namen, der zu diesem regulären Ausdruck passt, zählen auch unabhängig von ihrem Typ als Kleingegenstände, z. B. heilige Symbole, arkane Fokusse und Heilerausrüstung."
       },
       "clothingPattern": {
         "Name": "Kleidung: Namensmuster (Regex)",
-        "Hint": "Gegenstände, deren Name auf diesen regulären Ausdruck passt, gelten als Kleidung statt als Trinket. Das gilt auch, wenn sie z. B. beim Import als Verbrauchsgut vom Typ „trinket“ angelegt wurden (z. B. Robe, Gewand)."
+        "Hint": "Gegenstände mit einem Namen, der zu diesem regulären Ausdruck passt, zählen als Kleidung. So werden z. B. Roben und Gewänder auch dann als Kleidung erkannt, wenn sie als Verbrauchsgut vom Typ „trinket“ importiert wurden."
       },
       "freePattern": {
         "Name": "Frei: Namensmuster (Regex)",
@@ -187,15 +262,15 @@
       },
       "bodyWeightEnabled": {
         "Name": "Körpergewicht in die Traglast einrechnen",
-        "Hint": "Ein Anteil des Körpergewichts (Biografie-Feld „Gewicht“, z. B. „180 lb“ oder „82 kg“) zählt als bereits getragenes Gewicht und verringert den freien Spielraum bis zur Belastung."
+        "Hint": "Rechnet einen Anteil des Körpergewichts als getragene Last an. Dadurch wird die Belastungsgrenze früher erreicht. Grundlage ist das Feld „Gewicht“ in der Biografie, z. B. „180 lb“ oder „82 kg“."
       },
       "bodyWeightPercent": {
-        "Name": "Körpergewicht-Anteil (%)",
+        "Name": "Anteil des Körpergewichts (%)",
         "Hint": "Prozentsatz des Körpergewichts, der auf die getragene Last angerechnet wird. Bei 25 % und 180 lb Körpergewicht zählen 45 lb als getragen."
       },
       "jugPattern": {
         "Name": "Krug-Muster (Regex)",
-        "Hint": "Behälter, deren Name auf diesen regulären Ausdruck passt, zählen als Krug statt als Rucksack. Einzelne Gegenstände lassen sich per Rechtsklick → „Inventarplatz festlegen“ überschreiben."
+        "Hint": "Behälter, deren Name zu diesem regulären Ausdruck passt, zählen als Krug statt als Rucksack. Für einzelne Gegenstände lässt sich die Zuordnung über Rechtsklick → „Inventarplatz festlegen“ ändern."
       },
       "pilesEnabled": {
         "Name": "Gegenstände auf der Karte ablegen",
@@ -203,7 +278,7 @@
       },
       "pileRange": {
         "Name": "Reichweite für Haufen (Felder)",
-        "Hint": "Wie weit ein Token höchstens von einem Haufen entfernt sein darf, um daraus zu nehmen oder etwas abzulegen. 1 = angrenzend. 0 = keine Grenze. Gilt nicht für die Spielleitung."
+        "Hint": "Wie weit ein Token höchstens von einem Haufen entfernt sein darf, um ihn zu öffnen, daraus zu nehmen oder etwas abzulegen. 1 = angrenzend. 0 = keine Grenze. Gilt nicht für die Spielleitung."
       },
       "pileDeleteEmpty": {
         "Name": "Leere Haufen entfernen",
@@ -215,7 +290,7 @@
       },
       "tradeEnabled": {
         "Name": "Handel zwischen Charakteren",
-        "Hint": "Fügt unter der Spielerliste einen Handeln-Knopf hinzu. Beide Seiten legen Gegenstände und Münzen in ein Tauschfenster; nehmen beide an, wird getauscht. Für NPCs ohne Spieler handelt die Spielleitung."
+        "Hint": "Fügt unter der Spielerliste die Schaltfläche „Handeln“ hinzu. Beide Seiten bieten im gemeinsamen Fenster Gegenstände und Münzen an. Sobald beide zustimmen, wird getauscht. Für NSC ohne Spieler handelt die Spielleitung."
       },
       "tradeRange": {
         "Name": "Reichweite für Handel (Felder)",
@@ -247,27 +322,27 @@
       },
       "currencyAskReason": {
         "Name": "Nach Grund fragen",
-        "Hint": "Fragt die Spielleitung nach einer Änderung durch einen Spieler nach dem Grund (Belohnung, Korrektur …). Die Antwort kommt als eigener Eintrag ins Protokoll."
+        "Hint": "Fragt die Spielleitung nach einer Münzänderung durch einen Spieler nach einer Begründung, z. B. Belohnung oder Korrektur. Die Antwort wird im Protokoll gespeichert."
       },
       "currencySuspiciousCount": {
-        "Name": "Auffällig ab",
+        "Name": "Anzahl für Auffälligkeitswarnung",
         "Hint": "So viele Änderungen eines Spielers am selben Charakter in kurzer Zeit werden als auffällig markiert (Warnung im Protokoll). 0 = nie."
       },
       "currencySuspiciousSeconds": {
-        "Name": "Zeitraum für Auffälligkeit",
-        "Hint": "In welchem Zeitraum die Änderungen gezählt werden."
+        "Name": "Zeitraum für Auffälligkeitswarnung",
+        "Hint": "Zeitraum in Sekunden, in dem die Änderungen eines Spielers am selben Charakter gezählt werden."
       },
       "currencyMath": {
         "Name": "Rechnen mit Münzarten",
-        "Hint": "In den Münzfeldern des Charakterbogens darf eine Rechnung eine andere Münzart nennen, z. B. „-50 kupfer“ im Goldfeld. „+10“ und „-5“ für das Feld selbst kann dnd5e schon von sich aus."
+        "Hint": "Erlaubt in den Münzfeldern Berechnungen mit anderen Münzarten, z. B. „-50 kupfer“ im Goldfeld. Eingaben wie „+10“ oder „-5“ für die Münzart des Feldes unterstützt dnd5e bereits."
       },
       "currencyAutoConvert": {
         "Name": "Automatisch wechseln",
-        "Hint": "Reicht eine Münzart nicht, wird mit anderen Münzen bezahlt und Wechselgeld gegeben, solange der Geldbeutel genug wert ist: 2 GM, „-5“ im Silberfeld → 1 GM, 5 SM."
+        "Hint": "Reicht eine Münzart nicht aus, verwendet das Modul andere Münzen und berechnet Wechselgeld. Der Gesamtwert muss zur Bezahlung ausreichen. Beispiel: 2 Goldmünzen und „-5“ im Silberfeld ergeben 1 Goldmünze und 5 Silbermünzen."
       },
       "currencyPlatinum": {
         "Name": "Wechselgeld in Platin",
-        "Hint": "Beim Wechseln (Münzfelder und Rechnungen) darf Platin herauskommen. Aus: Gold, Silber und Kupfer."
+        "Hint": "Erlaubt Platinmünzen als Wechselgeld in Münzfeldern und Rechnungen. Ist die Option aus, wird kein Platin als Wechselgeld ausgegeben."
       },
       "currencyElectrum": {
         "Name": "Wechselgeld in Elektrum",
@@ -275,7 +350,7 @@
       },
       "invoicesEnabled": {
         "Name": "Rechnungen",
-        "Hint": "Die Spielleitung kann Rechnungen an Spielercharaktere schicken (Knopf in der Token-Leiste und im Kopf des Charakterbogens). Der Spieler bezahlt oder lehnt ab."
+        "Hint": "Die Spielleitung kann Rechnungen an Spielercharaktere senden. Die Schaltfläche dafür befindet sich in der Token-Steuerung und im Kopfbereich des Charakterbogens. Der Spieler kann bezahlen oder ablehnen."
       },
       "trackerEnabled": {
         "Name": "Charaktere verfolgen",
@@ -295,7 +370,7 @@
       },
       "trackerSpells": {
         "Name": "Zauber erfassen",
-        "Hint": "Nennt den Zauber, für den ein Zauberplatz verbraucht wurde. Wird ein Zauber, der einen Zauberplatz braucht, ohne einen gewirkt, steht eine Warnung im Protokoll."
+        "Hint": "Ergänzt im Protokoll den Zauber, für den ein Zauberplatz verbraucht wurde. Erkennt das Modul einen Zauber, der einen Zauberplatz benötigt, ohne dass einer verbraucht wurde, protokolliert es eine Warnung."
       },
       "trackerPrivate": {
         "Name": "Vertrauliche Felder erfassen",
@@ -303,11 +378,11 @@
       },
       "trackerPrivateFields": {
         "Name": "Vertrauliche Felder",
-        "Hint": "Feldpfade, die ausgelassen werden, durch Komma getrennt, z. B. system.details.biography. Gilt auch für Unterfelder."
+        "Hint": "Durch Komma getrennte Feldpfade, z. B. system.details.biography. Diese Felder und ihre Unterfelder werden ausgelassen, solange „Vertrauliche Felder erfassen“ ausgeschaltet ist."
       },
       "provisionsEnabled": {
         "Name": "Gruppenvorrat",
-        "Hint": "Zeigt den Vorrat an Nahrung und Wasser der Gruppe (Knopf in der Token-Steuerung) und erlaubt es, bei der langen Rast daraus zu essen und zu trinken."
+        "Hint": "Zeigt Nahrung und Wasser der Gruppe im Gruppen-Inventar. Du öffnest es über die Token-Steuerung. Bei langen Rasten können Charaktere diese Vorräte nutzen."
       },
       "provisionsAuto": {
         "Name": "Bei der Rast automatisch nehmen",
@@ -331,7 +406,7 @@
       },
       "restEnabled": {
         "Name": "Rast-System verwenden",
-        "Hint": "Die Spielleitung ruft Rasten über den Knopf unter der Spielerliste aus. Bei der langen Rast essen und trinken die Charaktere aus dem Gruppenvorrat."
+        "Hint": "Die Spielleitung ruft Rasten über die Schaltfläche unter der Spielerliste aus. Bei langen Rasten nutzen die Charaktere Nahrung und Wasser aus dem Gruppenvorrat."
       },
       "restGMOnly": {
         "Name": "Nur die Spielleitung startet Rasten",
@@ -347,28 +422,35 @@
       },
       "restExternalFood": {
         "Name": "Externe Nahrungsquelle",
-        "Hint": "Wie viel des Tagesbedarfs an Nahrung eine externe Quelle gibt, wenn sie beim Ausrufen der Rast angehakt ist. Dabei werden keine Gegenstände verbraucht."
+        "Hint": "Anteil des täglichen Nahrungsbedarfs, den eine externe Quelle deckt, wenn sie beim Ausrufen der Rast aktiviert ist. Dabei werden keine Gegenstände verbraucht."
       },
       "restExternalWater": {
         "Name": "Externe Wasserquelle",
-        "Hint": "Wie viel des Tagesbedarfs an Wasser eine externe Quelle gibt, wenn sie beim Ausrufen der Rast angehakt ist. Dabei werden keine Gegenstände verbraucht."
+        "Hint": "Anteil des täglichen Wasserbedarfs, den eine externe Quelle deckt, wenn sie beim Ausrufen der Rast aktiviert ist. Dabei werden keine Gegenstände verbraucht."
       },
       "restExhaustion": {
         "Name": "Erschöpfung durch Hunger und Durst",
-        "Hint": "Wem bei der langen Rast Nahrung oder Wasser fehlt, wird nach den Regeln oben erschöpft."
+        "Hint": "Berücksichtigt bei langen Rasten Erschöpfung durch zu wenig Nahrung oder Wasser. Die Regeln stehen im Hinweis dieses Abschnitts; Grenzwerte und Rettungswurf-SG lassen sich hier anpassen."
       },
       "restHalfWaterDC": {
-        "Name": "SG bei halbem Wasser",
-        "Hint": "SG des Konstitutionsrettungswurfs, wenn ein Charakter nur die Hälfte seines Wassers getrunken hat. 0 = kein Wurf und keine Erschöpfung."
+        "Name": "Rettungswurf-SG bei Wassermangel",
+        "Hint": "SG des Konstitutionsrettungswurfs, wenn ein Charakter mindestens die Hälfte, aber weniger als seinen vollen Wasserbedarf gedeckt hat. 0 = kein Rettungswurf und keine Erschöpfung durch diese Prüfung."
       },
       "restNoFoodDays": {
         "Name": "Tage ohne Essen",
-        "Hint": "Wie viele Tage ein Charakter ohne Nahrung auskommt, bevor er erschöpft wird. Eine Formel mit den Werten des Charakters."
+        "Hint": "Formel für die Anzahl der Tage ohne Nahrung, nach denen ein Charakter Erschöpfung erhält. Die Formel kann Werte des Charakters verwenden."
       },
       "Access": {
         "none": "Keine",
         "half": "Halb",
         "full": "Voll"
+      },
+      "partyFund": {
+        "Name": "Gruppenkasse",
+        "Hint": "Reserviert Münzen für gemeinsame Zwecke wie „Allgemein“ oder „Boot“. Die Münzen bleiben im Geldbeutel des Charakters. Im Charakterbogen und im Reiter „Gruppenkasse“ des Gruppen-Inventars kannst du sie reservieren, freigeben oder aufteilen. Vor dem Ausgeben reservierter Münzen erscheint eine Warnung. „Mit eigener Schaltfläche“ fügt am Münzhaufen eine zusätzliche Schaltfläche hinzu, die Münzen für „Allgemein“ reserviert. „Immer“ reserviert alle Münzen, die ein Gruppencharakter aus einem Haufen nimmt. „Aus“ deaktiviert die Gruppenkasse und ihre Warnungen.",
+        "Off": "Aus",
+        "Button": "Mit eigener Schaltfläche am Münzhaufen",
+        "Always": "Immer"
       }
     },
     "Pile": {
@@ -405,8 +487,17 @@
         "Potion": "Unbekannter Trank",
         "PotionDescription": "Eine kleine Phiole mit einer Flüssigkeit unbekannter Wirkung.",
         "Scroll": "Unbekannte Schriftrolle",
-        "ScrollDescription": "Eine zusammengerollte Schriftrolle, beschrieben in einer Schrift, deren Bedeutung sich nicht erschließt."
-      }
+        "ScrollDescription": "Eine zusammengerollte Schriftrolle mit unverständlichen Schriftzeichen."
+      },
+      "Split": {
+        "Button": "Gleichmäßig unter der Gruppe aufteilen",
+        "Title": "Münzen aufteilen",
+        "Intro": "{coins} werden gleichmäßig unter den {count} Charakteren der Gruppe aufgeteilt:",
+        "Rest": "{actor} bekommt zusätzlich, was sich nicht gleichmäßig aufteilen lässt: {coins}.",
+        "Nothing": "nichts"
+      },
+      "FundCoins": "In die Gruppenkasse nehmen",
+      "TakeCoinsFund": "Münzen nehmen (in die Gruppenkasse)"
     },
     "Log": {
       "Notify": "Pack & Ledger: {summary}",
@@ -465,7 +556,7 @@
       "Request": "Handel anfragen",
       "NoPartners": "Niemand in Reichweite, mit dem {actor} handeln könnte.",
       "InvalidPartner": "Mit diesem Token kann nicht gehandelt werden.",
-      "NoResponder": "Gerade ist niemand da, der für {partner} handeln kann.",
+      "NoResponder": "Für {partner} ist gerade kein Spieler und keine Spielleitung zum Handeln verfügbar.",
       "OutOfRange": "{actor} und {partner} stehen zu weit auseinander, um zu handeln.",
       "Busy": "{actor} handelt bereits.",
       "Asked": "Handelsanfrage an {partner} gesendet.",
@@ -477,7 +568,7 @@
       "Cancel": "Handel abbrechen",
       "Declined": "{partner} hat den Handel abgelehnt.",
       "Expired": "{partner} hat nicht auf die Handelsanfrage reagiert.",
-      "Cancelled": "Der Handel wurde abgebrochen ({actor}).",
+      "Cancelled": "Der Handel wurde von {actor} abgebrochen.",
       "Done": "Handel zwischen {actor} und {partner} abgeschlossen.",
       "Blocked": "Der Handel wurde nicht ausgeführt: {actor} kann nicht alles tragen, was angeboten wurde. Passt die Angebote an.",
       "Changed": "Der Handel wurde nicht ausgeführt, weil ein angebotener Gegenstand oder das Geld nicht mehr vorhanden ist. Prüft die Angebote.",
@@ -493,7 +584,7 @@
       "EmptyTheirs": "Noch nichts angeboten.",
       "AddItem": "Gegenstand anbieten …",
       "Remove": "Aus dem Angebot nehmen",
-      "Contents": "+{count} Inhalt",
+      "Contents": "+{count} enthaltene Gegenstände",
       "OfferTitle": "Anbieten: {name}",
       "Hint": "Sobald beide Seiten annehmen, wird getauscht. Jede Änderung an einem Angebot hebt die Annahme beider Seiten auf.",
       "Unknown": "Unbekannt",
@@ -502,7 +593,7 @@
       "ChatGives": "{actor} gibt {partner}:",
       "ChatNothing": "nichts",
       "NoOwnActor": "Wähle ein eigenes Token aus oder lege einen Charakter fest, um zu handeln.",
-      "PlayerListHint": "Mit einem Charakter oder NPC in Reichweite handeln.",
+      "PlayerListHint": "Mit einem Charakter oder NSC in Reichweite handeln.",
       "Button": "Handeln"
     },
     "Config": {
@@ -510,7 +601,7 @@
       "Menu": {
         "Name": "Einstellungen des Moduls",
         "Label": "Einstellungen öffnen",
-        "Hint": "Alle Einstellungen des Moduls, übersichtlich in Bereichen."
+        "Hint": "Alle Moduleinstellungen, nach Themen geordnet."
       },
       "Tabs": {
         "general": {
@@ -527,7 +618,7 @@
         },
         "detection": {
           "Name": "Erkennung",
-          "Hint": "Woran das Modul erkennt, welcher Platz zu einem Gegenstand gehört."
+          "Hint": "Wie das Modul Gegenstände den Plätzen am Körper zuordnet."
         },
         "map": {
           "Name": "Karte & Handel",
@@ -547,12 +638,12 @@
         },
         "provisions": {
           "Name": "Vorrat",
-          "Hint": "Nahrung und Wasser der Gruppe, Lager wie ein Wagen und Verpflegung bei der langen Rast."
+          "Hint": "Nahrung und Wasser der Gruppe, mitgeführte Lager und Verpflegung bei langen Rasten."
         }
       },
       "Section": {
         "Limits": "Plätze und Grenzen",
-        "LimitsHint": "Wie viele Gegenstände jeder Art direkt am Körper getragen werden dürfen. Fahre über eine Kachel für Details.",
+        "LimitsHint": "Wie viele Gegenstände jeder Kategorie direkt am Körper getragen werden dürfen. Bewege den Mauszeiger über eine Kachel, um Details zu sehen.",
         "DetectTypes": "Nach dnd5e-Typ",
         "DetectNames": "Nach Namen (reguläre Ausdrücke)",
         "Test": "Muster testen",
@@ -570,11 +661,12 @@
         "ProvisionsNeed": "Bedarf pro Tag",
         "ProvisionsNeedHint": "Wie viel Nahrung und Wasser ein Charakter pro Tag braucht.",
         "ProvisionsNames": "Erkennung nach Namen",
-        "ProvisionsNamesHint": "Verbrauchsgüter vom Typ Nahrung mit dem Untertyp Nahrung, Wasser oder beides werden immer erkannt. Andere Gegenstände zählen, wenn ihr Name zu einem dieser Muster passt (reguläre Ausdrücke, Groß- und Kleinschreibung egal).",
+        "ProvisionsNamesHint": "Verbrauchsgüter vom Typ „Nahrung“ werden über die Eigenschaften „Nutritious“ (Nahrung) und „Hydrating“ (Wasser) erkannt. Bei älteren dnd5e-Versionen zählt der Untertyp „Nahrung“, „Wasser“ oder „beides“. Zusätzlich prüft das Modul bei Verbrauchsgütern und Beutegegenständen die folgenden Namensmuster. Die Muster sind reguläre Ausdrücke; Groß- und Kleinschreibung spielt keine Rolle.",
         "ProvisionsRest": "Rast-System",
-        "ProvisionsRestHint": "Die Rast selbst übernimmt dnd5e (Trefferpunkte, Trefferwürfel, Zauberplätze, Ladungen). Das Modul ergänzt: Die Spielleitung ruft die Rast für die Gruppe über den Knopf unter der Spielerliste aus. Bei der langen Rast teilt die Gruppe Nahrung und Wasser gemeinsam ein. Bei der kurzen Rast würfelt ein Knopf die Trefferwürfel automatisch.",
+        "ProvisionsRestHint": "dnd5e berechnet die Erholung von Trefferpunkten, Trefferwürfeln, Zauberplätzen und Ladungen. Die Spielleitung ruft über die Schaltfläche unter der Spielerliste eine Gruppenrast aus. Bei langen Rasten teilt die Gruppe Nahrung und Wasser gemeinsam zu. Bei kurzen Rasten können Trefferwürfel per Schaltfläche automatisch gewürfelt werden.",
         "ProvisionsExhaustion": "Erschöpfung durch Hunger und Durst",
-        "ProvisionsExhaustionHint": "Weniger als die Hälfte des Wassers gibt eine Stufe Erschöpfung, zwei Stufen bei schon Erschöpften. Genau die Hälfte erfordert einen Konstitutionsrettungswurf. Eine halbe Ration oder weniger zählt als halber Tag ohne Nahrung, gar nichts als ganzer Tag. Wer mehr Tage ohne Nahrung hat als erlaubt, wird erschöpft. Wem Nahrung oder Wasser fehlt, der erholt sich bei dieser Rast nicht von Erschöpfung."
+        "ProvisionsExhaustionHint": "Weniger als der halbe Wasserbedarf verursacht eine Stufe Erschöpfung, bei bereits erschöpften Charakteren zwei. Ab der Hälfte, aber unter dem vollen Bedarf entscheidet ein Konstitutionsrettungswurf. Etwas Nahrung bis zur Hälfte des Tagesbedarfs zählt als halber Tag ohne Nahrung; gar keine Nahrung zählt als ganzer Tag. Wird die eingestellte Grenze überschritten, entsteht Erschöpfung. Bei zu wenig Wasser oder höchstens halbem Nahrungsbedarf wird Erschöpfung während dieser Rast nicht abgebaut.",
+        "PartyFund": "Gruppenkasse"
       },
       "Unit": {
         "Squares": "Felder",
@@ -597,7 +689,7 @@
         "freePattern": "Frei (kein Platz)",
         "clothingPattern": "Kleidung",
         "jugPattern": "Krug (bei Behältern)",
-        "trinketPattern": "Trinket"
+        "trinketPattern": "Kleingegenstand"
       }
     },
     "Lock": {
@@ -611,8 +703,8 @@
       "OutOfRangeHint": "Wähle ein eigenes Token in Reichweite aus.",
       "ByKey": "mit „{key}“",
       "ByPick": "Schloss geknackt (Wurf {total})",
-      "MysteryHint": "Öffnet jedes Schloss mit geringer Chance und verschwindet dann. Ein Versuch pro Schloss.",
-      "MysteryTriedHint": "Dieser Charakter hat den Schlüssel an diesem Schloss schon versucht.",
+      "MysteryHint": "Kann das Schloss mit geringer Wahrscheinlichkeit öffnen und verschwindet bei Erfolg. Ein Versuch pro Charakter und Schloss.",
+      "MysteryTriedHint": "Dieser Charakter hat den Schlüssel bereits an diesem Schloss ausprobiert.",
       "MysteryRollSuccess": "{key} an „{pile}“ (Chance {chance} %): Das Schloss springt auf und der Schlüssel löst sich auf!",
       "MysteryRollFail": "{key} an „{pile}“ (Chance {chance} %): Der Schlüssel passt nicht.",
       "ByMystery": "mit „{key}“ (der Schlüssel ist verschwunden)"
@@ -701,9 +793,15 @@
         "Suspicious": "Auffällig: {count} Änderungen innerhalb von {seconds} s"
       },
       "Input": {
-        "MathOff": "Andere Münzarten in einer Rechnung sind ausgeschaltet.",
+        "MathOff": "Berechnungen mit anderen Münzarten sind ausgeschaltet.",
         "ConvertOff": "Nicht genug {coin}. Automatisches Wechseln ist ausgeschaltet.",
-        "NotEnough": "So viel hat {actor} nicht: {coins}."
+        "NotEnough": "{actor} hat nicht genügend Münzen für diesen Betrag: {coins}."
+      },
+      "Share": {
+        "ChatPile": "{by} hat die Münzen aus „{from}“ unter der Gruppe aufgeteilt.",
+        "ChatFund": "{by} hat die Gruppenkasse unter der Gruppe aufgeteilt.",
+        "ChatGets": "{actor} erhält {coins}.",
+        "ChatAccount": "{by} hat die Münzen für „{account}“ unter der Gruppe aufgeteilt."
       }
     },
     "Invoice": {
@@ -718,7 +816,7 @@
       "Offline": "Spieler offline",
       "Empty": "Wähle links einen Charakter, um eine Rechnung anzulegen.",
       "To": "An: {user}",
-      "NoRecipient": "Kein Spieler dieses Charakters ist online. Die Rechnung kann vorbereitet und später geschickt werden.",
+      "NoRecipient": "Kein Spieler mit Besitzerrechten für diesen Charakter ist online. Du kannst die Rechnung vorbereiten und später senden.",
       "Purse": "Geldbeutel: {coins}",
       "Note": "Notiz für den Spieler",
       "NotePlaceholder": "z. B. Zum Tänzelnden Pony, zwei Nächte",
@@ -759,8 +857,8 @@
         "Total": "Summe: {total}"
       },
       "Error": {
-        "NoName": "Zum Preis „{cost}“ fehlt der Posten.",
-        "Cost": "Der Preis von „{name}“ ist nicht lesbar. Beispiele: 5 gp, 2 sp 5 cp, 3 Gold 4 Silber.",
+        "NoName": "Für den Posten mit dem Preis „{cost}“ fehlt eine Bezeichnung.",
+        "Cost": "Der Preis für „{name}“ konnte nicht erkannt werden. Gültige Beispiele: 5 gp, 2 sp 5 cp, 3 Gold 4 Silber.",
         "Empty": "Die Rechnung hat keine Posten.",
         "Offline": "Kein Spieler von {actor} ist gerade online.",
         "CannotAfford": "{actor} kann das nicht bezahlen: {total} (hat {coins}).",
@@ -807,7 +905,12 @@
         "invoiceFailed": "Rechnung nicht bezahlt",
         "pileTake": "Aus Haufen genommen",
         "pileDrop": "In Haufen gelegt",
-        "trade": "Handel"
+        "pileSplit": "Aus Haufen aufgeteilt",
+        "trade": "Handel",
+        "pileFund": "In die Gruppenkasse genommen",
+        "fundSplit": "Gruppenkasse aufgeteilt",
+        "fundDeposit": "In die Gruppenkasse gelegt",
+        "fundWithdraw": "Aus der Gruppenkasse genommen"
       },
       "Details": "Details",
       "Before": "Vorher",
@@ -827,7 +930,7 @@
       "ActorGone": "Diesen Charakter gibt es nicht mehr.",
       "Delete": {
         "Title": "Eintrag löschen",
-        "Hint": "Diesen Eintrag endgültig aus dem Münz-Protokoll löschen, zusammen mit einem später ergänzten Grund? Das lässt sich nicht rückgängig machen."
+        "Hint": "Diesen Eintrag samt einer nachträglich ergänzten Begründung endgültig aus dem Münz-Protokoll löschen? Das lässt sich nicht rückgängig machen."
       },
       "Empty": "Noch keine Münzänderungen protokolliert.",
       "NoMatch": "Keine Einträge passen zu den Filtern.",
@@ -880,7 +983,7 @@
         "Weight": "Gewicht",
         "Price": "Preis",
         "Description": "Beschreibung",
-        "ActivityUses": "Verbrauchte Nutzungen von „{activity}“",
+        "ActivityUses": "Verbrauchte Nutzungen: „{activity}“",
         "Activity": "Aktivität „{activity}“",
         "ActivityUnnamed": "Aktivität",
         "UnknownContainer": "(gelöschter Behälter)",
@@ -899,7 +1002,7 @@
       "SnapshotInvalid": "Der Snapshot passt nicht zu diesem Charakter (anderes System oder anderer Typ).",
       "ConfirmSave": "Den vorhandenen Snapshot dieses Charakters überschreiben?",
       "ConfirmSaveAll": "Neue Snapshots für alle verfolgten Charaktere speichern, auch für nicht verknüpfte Tokens? Vorhandene werden überschrieben.",
-      "ConfirmRestore": "Die ausgewählten Daten auf den Snapshot zurücksetzen? Die aktuellen Werte werden überschrieben, das lässt sich nicht automatisch rückgängig machen.",
+      "ConfirmRestore": "Die ausgewählten Daten auf den Stand des Snapshots zurücksetzen? Dabei werden die aktuellen Werte überschrieben. Dieser Vorgang lässt sich nicht automatisch rückgängig machen.",
       "Failed": "Charakter-Tracker: Vorgang fehlgeschlagen. Details stehen im Protokoll.",
       "Yes": "Ja",
       "No": "Nein",
@@ -918,7 +1021,6 @@
       "Title": "Pack & Ledger",
       "OpenLog": "Protokoll öffnen (alle Tage)",
       "Empty": "In den letzten 24 Stunden keine Einträge.",
-      "Activity": "Aktivität",
       "Balance": "Bestand: {coins}",
       "Reason": "Grund: {reason}",
       "Filter": {
@@ -933,12 +1035,11 @@
       "LogLine": "{uses}× {item} ({from})",
       "Opened": "Eine Einheit ist angebrochen: {part} davon ist schon verbraucht.",
       "Empty": "Keine Spielercharaktere und keine Lager gefunden.",
-      "Total": "Gesamt",
       "NeedPerDay": "Bedarf der Gruppe pro Tag: {food} Nahrung, {water} Wasser.",
       "NeedOwn": "(aus den Einstellungen von Pack & Ledger)",
       "Store": {
         "Add": "Als Gruppenlager markieren",
-        "Remove": "Kein Gruppenlager mehr",
+        "Remove": "Markierung als Gruppenlager entfernen",
         "Added": "„{actor}“ ist jetzt ein Lager der Gruppe.",
         "Removed": "„{actor}“ ist kein Lager der Gruppe mehr."
       },
@@ -946,9 +1047,9 @@
         "Title": "Aus dem Gruppenvorrat",
         "Eat": "Essen ({amount} fehlt)",
         "Drink": "Trinken ({amount} fehlt)",
-        "NoGM": "Der Gruppenvorrat braucht eine angemeldete Spielleitung.",
-        "Nothing": "Im Gruppenvorrat ist nichts mehr davon.",
-        "NotEnough": "Der Gruppenvorrat reicht nicht ganz.",
+        "NoGM": "Um den Gruppenvorrat zu nutzen, muss eine Spielleitung angemeldet sein.",
+        "Nothing": "Dieser Vorrat ist aufgebraucht.",
+        "NotEnough": "Der Gruppenvorrat deckt den Bedarf nicht vollständig.",
         "Failed": "Aus dem Gruppenvorrat konnte nichts genommen werden. Details stehen in der Browser-Konsole.",
         "DialogTitle": "Essen und Trinken: {actor}",
         "Continue": "Weiter zur Rast",
@@ -959,14 +1060,14 @@
         "AutoHD": "Automatisch würfeln",
         "Starving": "Tage ohne Essen: {days}. Erschöpft vor Hunger.",
         "Hungry": "Tage ohne Essen: {days} von {max}.",
-        "Thirst": "Weniger als die Hälfte des Wassers: {levels} Stufe(n) Erschöpfung.",
-        "ThirstSaved": "Nur das halbe Wasser: Konstitutionsrettungswurf geschafft.",
-        "ThirstFailed": "Nur das halbe Wasser: Konstitutionsrettungswurf misslungen, {levels} Stufe(n) Erschöpfung.",
+        "Thirst": "Weniger als die Hälfte des Wasserbedarfs gedeckt: {levels} Stufe(n) Erschöpfung.",
+        "ThirstSaved": "Wasserbedarf nur teilweise gedeckt: Konstitutionsrettungswurf bestanden.",
+        "ThirstFailed": "Wasserbedarf nur teilweise gedeckt: Konstitutionsrettungswurf misslungen, {levels} Stufe(n) Erschöpfung.",
         "CardTitle": "Mahlzeiten bei der Rast",
         "CardFood": "Nahrung: {had} von {need}",
         "CardWater": "Wasser: {had} von {need}",
         "GMOption": "Legt die Spielleitung beim Ausrufen der Rast fest.",
-        "Before": "Schon vor der Rast: {food} Nahrung, {water} Wasser"
+        "Before": "Vor der Rast bereits verzehrt: {food} Nahrung, {water} Wasser"
       },
       "AddResource": "Gegenstand hierher ziehen, um ihn zu verfolgen",
       "RemoveResource": "Nicht mehr verfolgen",
@@ -993,19 +1094,23 @@
         "Hint": "Füllt alle leeren und angebrochenen Wasserschläuche der Charaktere und der Lager bei der Gruppe wieder auf.",
         "AllFull": "Alle Wasserschläuche der Gruppe sind voll.",
         "Done": "Wasserschläuche aufgefüllt: {vessels} ({pints} Pints).",
-        "LogLine": "{count}× {item} (+{pints} Pints)"
+        "LogLine": "{count}× {item} (+{pints} Pints)",
+        "Water": "Wasser (Pint)",
+        "One": "„{item}“ aufgefüllt (+{pints} Pints).",
+        "OneFull": "„{item}“ ist schon voll."
       },
       "StoreEmpty": "Leer.",
       "CarriesNothing": "Trägt nichts davon bei sich.",
       "Tab": {
         "Characters": "Charaktere",
-        "Stores": "Lager"
+        "Stores": "Lager",
+        "Fund": "Gruppenkasse"
       },
       "NoCharacters": "Keine Spielercharaktere gefunden.",
-      "NoStores": "Die Gruppe hat noch kein Lager. Die Spielleitung macht einen Akteur (Wagen, Lagerkiste …) über den Knopf in der Kopfzeile seines Bogens zum Lager.",
+      "NoStores": "Die Gruppe hat noch kein Lager. Die Spielleitung kann einen Akteur, etwa einen Wagen oder eine Lagerkiste, über die Schaltfläche im Kopfbereich seines Bogens als Gruppenlager markieren.",
       "Magic": {
-        "Note": "Magische Quellen pro Tag: {jugs}× Alchemy Jug, {tankards}× Tankard of Plenty. In den Tagen oben schon eingerechnet.",
-        "JugHint": "Alchemy Jug: pro Tag entweder eine halbe Ration für bis zu {food} Personen (nie eine volle Ration) oder Wasser für bis zu {water} Personen (je 4 Pints, ein ganzer Tag).",
+        "Note": "Magische Quellen pro Tag: {jugs}× Alchemy Jug, {tankards}× Tankard of Plenty. In der angezeigten Vorratsdauer bereits berücksichtigt.",
+        "JugHint": "Alchemy Jug: pro Tag entweder je eine halbe Ration für bis zu {food} Personen oder je 4 Pints Wasser für bis zu {water} Personen. Die Nahrung deckt nur den halben Tagesbedarf, das Wasser den vollen.",
         "TankardHint": "Tankard of Plenty: pro Tag Wasser für bis zu {water} Personen (je 4 Pints, ein ganzer Tag)."
       },
       "OpenFromSheet": "Gruppen-Inventar öffnen",
@@ -1018,7 +1123,7 @@
         "Who": "Wer rastet",
         "Supply": "Essen und Trinken (lange Rast)",
         "JugMode": "Alchemy Jugs geben heute",
-        "SupplyHint": "Ein Jug gibt einen ganzen Tag lang Nahrung oder Wasser.",
+        "SupplyHint": "Jeder Alchemy Jug liefert an diesem Tag entweder Nahrung oder Wasser.",
         "Jug": {
           "auto": "Was früher ausgeht",
           "food": "Nahrung (halbe Ration für 5)",
@@ -1027,35 +1132,35 @@
         "Advance": "Zeit vergehen lassen",
         "Started": "Rast für {count} Charakter(e) ausgerufen.",
         "NewDay": "Neuer Tag",
-        "NewDayHint": "Fähigkeiten, die sich bei Tagesanbruch oder an einem neuen Tag erholen, werden aufgefüllt. Alchemy Jugs und Tankards of Plenty geben wieder.",
+        "NewDayHint": "Fähigkeiten mit täglicher Erholung werden wieder aufgefüllt. Alchemy Jugs und Tankards of Plenty stehen erneut zur Verfügung.",
         "RecoverTemp": "Temporäre Trefferpunkte entfernen",
-        "RecoverMax": "Max. TP wiederherstellen",
         "RecoverMaxHint": "Änderungen an den maximalen Trefferpunkten des Charakters werden entfernt.",
         "Hint": "Eine kurze oder lange Rast für die Gruppe ausrufen.",
         "ExternalHint": "Gibt Nahrung bzw. Wasser, ohne Gegenstände zu verbrauchen. Wie viel, legst du in den Moduleinstellungen fest.",
         "ExternalFood": "Externe Nahrungsquelle",
         "ExternalWater": "Externe Wasserquelle",
         "Options": "Optionen",
-        "RecoverMaxShort": "Max. TP",
+        "RecoverMaxShort": "TP-Maximum zurücksetzen",
         "Absent": "Abwesend",
         "AbsentHint": "Der Charakter ist nicht bei der Gruppe: Er rastet nicht mit, und seine Vorräte und magischen Gegenstände stehen den anderen bei dieser Rast nicht zur Verfügung.",
         "PlayerButton": "Rast"
       },
       "Session": {
         "Title": "Mahlzeiten bei der Rast",
-        "Hint": "Teilt gemeinsam ein, wer welche Nahrung und welches Wasser bekommt: Über „Quelle hinzufügen“ wählt ihr bei jedem Charakter, woraus er isst und trinkt.",
+        "Hint": "Teilt gemeinsam Nahrung und Wasser zu. Wählt bei jedem Charakter „Quelle hinzufügen“, dann die gewünschte Quelle und Menge. Nach jeder Änderung müssen alle erneut zustimmen.",
         "Absent": "Nicht bei der Gruppe (ihre Vorräte zählen nicht): {names}",
         "HintGM": "Kein Spieler ist beteiligt. Teile Nahrung und Wasser ein und starte die Rast.",
-        "Before": "Heute schon gehabt: {amount}",
+        "Before": "Heute bereits verzehrt: {amount}",
         "Enough": "Genug für den Tag",
-        "Half": "Nur die Hälfte: Konstitutionsrettungswurf (Wasser) bzw. halber Tag ohne Essen",
+        "Half": "Tagesbedarf teilweise gedeckt. Bei Wasser ist ein Konstitutionsrettungswurf nötig. Bei Nahrung zählt bis einschließlich der Hälfte des Tagesbedarfs ein halber Tag ohne Nahrung.",
         "Short": "Zu wenig: Erschöpfung droht",
         "AddSource": "Quelle hinzufügen",
+        "ChooseSource": "Quelle wählen …",
         "Remove": "Entfernen",
         "LeftUses": "noch {n}",
-        "LeftPlaces": "noch {n} Platz/Plätze",
+        "LeftPlaces": "Verbleibende Plätze: {n}",
         "Gone": "(nicht mehr vorhanden)",
-        "RowShort": "Davon nur {amount}: Es ist nicht genug übrig oder diese Quelle ist nicht erlaubt.",
+        "RowShort": "Nur {amount} verfügbar: Der Vorrat reicht nicht aus oder diese Quelle ist nicht zulässig.",
         "Propose": "Verteilung vorschlagen",
         "ProposeHint": "Das Modul schlägt eine Verteilung vor und ersetzt die bisherige Einteilung. Alle müssen danach erneut zustimmen.",
         "Yes": "Zustimmen",
@@ -1076,8 +1181,63 @@
         "StartFailed": "Nicht alle Rasten konnten gestartet werden. Bitte die Charaktere prüfen (Details im Protokoll).",
         "Interrupted": "Eine Rast wurde beim Ausgeben der Mahlzeiten unterbrochen, weil die Seite neu geladen wurde. Sie wurde beendet. Bitte die Inventare prüfen und die Rast bei Bedarf neu ausrufen.",
         "Replace": "Für eine andere Rast werden noch die Mahlzeiten eingeteilt. Soll diese Rast abgebrochen und eine neue ausgerufen werden?",
-        "CancelStuck": "Dauert es zu lange, beendet dies die Rast, ohne weiter etwas auszugeben."
+        "CancelStuck": "Beendet eine festhängende Rast. Bereits verbrauchte Vorräte werden nicht zurückgebucht. Prüfe anschließend die Inventare."
       }
+    },
+    "Fund": {
+      "Taken": "{coins} (in die Gruppenkasse)",
+      "Chip": "Gruppenkasse: {coins}",
+      "Close": "Schließen",
+      "DepositTooltip": "Münzen in die Gruppenkasse legen",
+      "Depositor": "Charakter",
+      "NothingFree": "Alle Münzen von {actor} sind bereits für die Gruppenkasse reserviert.",
+      "NoDepositor": "Du hast keinen Charakter in der Gruppe, dessen Münzen du in die Gruppenkasse legen kannst.",
+      "NothingDeposited": "Keine Münzen angegeben.",
+      "Total": "Gruppenkasse insgesamt: {coins}",
+      "None": "leer",
+      "Split": "Eigene Münzen aufteilen",
+      "Deposit": "In die Gruppenkasse legen",
+      "DepositTitle": "Münzen in die Gruppenkasse legen",
+      "MainAccount": "Allgemein",
+      "Account": "Zweck",
+      "NewAccount": "Neuer Zweck",
+      "AccountName": "Wofür?",
+      "AccountPlaceholder": "z. B. Boot, Reserve",
+      "Create": "Anlegen",
+      "AccountCreated": "Der Zweck „{account}“ ist angelegt.",
+      "AccountExists": "Den Zweck „{account}“ gibt es schon.",
+      "AccountDeleted": "Der Zweck „{account}“ wurde entfernt. Die dafür reservierten Münzen sind wieder frei verfügbar.",
+      "DeleteAccount": "Zweck entfernen",
+      "DeleteHint": "Die dafür reservierten Münzen bleiben bei den jeweiligen Charakteren und sind wieder frei verfügbar.",
+      "DeleteConfirm": "Den Zweck „{account}“ entfernen? Die dafür reservierten Münzen bleiben bei den jeweiligen Charakteren und sind wieder frei verfügbar.",
+      "DepositHint": "Die Münzen bleiben im Geldbeutel dieses Charakters und werden für diesen Zweck reserviert. Du kannst die Reservierung später durch Herausnehmen aufheben.",
+      "Deposited": "{actor} hat {coins} für „{account}“ in die Gruppenkasse gelegt.",
+      "Available": "{count} verfügbar",
+      "Withdraw": "Herausnehmen",
+      "WithdrawTitle": "Münzen herausnehmen: {actor}",
+      "WithdrawHint": "Die Münzen bleiben bei {actor} und sind wieder frei verfügbar.",
+      "Withdrawn": "{actor} hat {coins} für „{account}“ aus der Gruppenkasse genommen.",
+      "NothingToWithdraw": "{actor} hat keine Münzen in der Gruppenkasse.",
+      "Holds": "In der Gruppenkasse hat {actor}:",
+      "HoldsNothing": "{actor} hat nichts in der Gruppenkasse.",
+      "Title": "Gruppenkasse: {actor}",
+      "Tooltip": "Dieser Anteil des Münzbestands ist für die Gruppenkasse reserviert. Klicken, um Münzen hineinzulegen oder herauszunehmen.",
+      "SplitTitle": "„{account}“ aufteilen",
+      "SplitIntro": "{coins} für „{account}“ werden gleichmäßig auf die {count} Gruppencharaktere verteilt. Die Vorschau zeigt den Anteil jedes Charakters:",
+      "SplitRest": "Es werden nur Münzen deiner eigenen Charaktere aufgeteilt. Nicht teilbare Restbeträge bleiben beim einzahlenden Charakter. Die aufgeteilten Münzen sind anschließend nicht mehr für die Gruppenkasse reserviert.",
+      "SplitDone": "{coins} für „{account}“ sind unter {count} Charakteren aufgeteilt.",
+      "AccountHint": "Wofür das Geld gedacht ist. Die Münzen bleiben im Geldbeutel; wer sie ausgeben will, bekommt vorher eine Warnung.",
+      "SpendTitle": "Münzen der Gruppenkasse ausgeben?",
+      "SpendWarning": "Damit verwendet {actor} Münzen, die für folgende Zwecke in der Gruppenkasse reserviert sind:",
+      "SpendHint": "Wenn du fortfährst, verringert sich der für diese Zwecke reservierte Betrag entsprechend.",
+      "SpendAnyway": "Trotzdem ausgeben",
+      "SpendCancel": "Abbrechen",
+      "NothingToSplit": "Deine Charaktere haben für „{account}“ keine Münzen in der Gruppenkasse. Aufteilen kann man nur eigene Münzen.",
+      "RenameAccount": "Umbenennen",
+      "AccountRenamed": "„{old}“ heißt jetzt „{account}“.",
+      "NotEmpty": "Für „{account}“ sind noch Münzen reserviert. Deshalb kann nur die Spielleitung diesen Zweck entfernen.",
+      "LogSpent": "Trotz Warnung aus der Gruppenkasse ausgegeben: {spent}",
+      "SpendCancelled": "Nicht bezahlt: {actor} hat die Münzen der Gruppenkasse nicht ausgegeben."
     }
   }
 }

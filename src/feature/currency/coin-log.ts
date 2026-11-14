@@ -9,8 +9,8 @@ import { coinsOf, toCopper, type Coins } from "./coins.js";
  * records from the log.
  */
 
-export type CoinSource = "player" | "gm" | "invoicePaid" | "invoiceDeclined" | "invoiceFailed" | "pileTake" | "pileDrop" | "trade";
-const SOURCES = new Set<CoinSource>(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "trade"]);
+export type CoinSource = "player" | "gm" | "invoicePaid" | "invoiceDeclined" | "invoiceFailed" | "pileTake" | "pileDrop" | "pileSplit" | "pileFund" | "fundSplit" | "fundDeposit" | "fundWithdraw" | "trade";
+const SOURCES = new Set<CoinSource>(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "pileSplit", "pileFund", "fundSplit", "fundDeposit", "fundWithdraw", "trade"]);
 
 export interface CoinEntry {
   id: string;

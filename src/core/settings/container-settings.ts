@@ -13,4 +13,6 @@ Hooks.once("init", () => {
   });
   registerSetting("overfillHardLimit", { type: Number, default: 0 });
   registerSetting("tearChanceFactor", { type: Number, default: 1 });
+  // Quivers, bolt cases and the like hold only their ammunition (core/policy/ammo-containers.ts).
+  registerSetting("ammoContainers", { type: Boolean, default: true });
 });

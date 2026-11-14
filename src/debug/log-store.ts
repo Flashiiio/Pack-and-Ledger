@@ -13,6 +13,7 @@
  */
 
 import { MODULE_ID } from "../core/constants.js";
+import { placeInFolder } from "../core/pack-folder.js";
 import { dayOf, entryKey, formatEntry, parseFileLog, type FileLogEntry, type FileLogLevel, type FileLogTag } from "./file-log.js";
 
 /** Split log text into entries (a time-stamped line plus its indented continuation lines). */
@@ -58,6 +59,7 @@ export async function ensureLogPack(): Promise<any> {
     const Compendium = foundry.documents.collections.CompendiumCollection;
     const pack = await Compendium.createCompendium({ label: LOG_PACK_LABEL, name: LOG_PACK_NAME, type: "JournalEntry" });
     await pack.configure({ ownership: { ...OWNERSHIP } });
+    await placeInFolder(pack, { fresh: true });
     return pack;
   })().finally(() => { creating = null; });
   return creating;

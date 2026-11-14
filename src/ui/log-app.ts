@@ -41,8 +41,15 @@ function passes(entry: LogEntry, filter: string): boolean {
   return entry.level === filter;
 }
 
-/** A value for a CSV file. */
-const csvCell = (value: string) => /[",;\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/**
+ * A value for a CSV file. Text a spreadsheet would read as a formula ("=…", "+…", "@…", "-…" that is no number –
+ * names come from players) gets a leading apostrophe, so it is shown as text.
+ */
+const csvCell = (value: string) => {
+  let s = String(value ?? "");
+  if ( /^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) ) s = `'${s}`;
+  return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 
 /** All values of a tag found in the entries, sorted, for a filter list. */
 const valuesOf = (entries: LogEntry[], key: string) =>

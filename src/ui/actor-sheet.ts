@@ -7,7 +7,7 @@ import { dropCoins, dropItem } from "../feature/piles/client.js";
 import { logError } from "../debug/logger.js";
 import { showNotification } from "../core/socket.js";
 import { isTorn, repairContainer } from "../feature/container-tear.js";
-import { provisionsActive } from "../feature/provisions/provisions.js";
+import { canRefill, provisionsActive, refillVessel } from "../feature/provisions/provisions.js";
 import { openProvisionsApp } from "./provisions-app.js";
 
 /* -------------------------------------------- */
@@ -211,6 +211,19 @@ export function onGetItemContextOptions(item: any, options?: any) {
       icon: "fa-solid fa-screwdriver-wrench fa-fw",
       group: "state",
       onClick: () => repairContainer(item)
+    });
+  }
+  // The GM fills a single waterskin up again.
+  if ( game.user.isGM && canRefill(item) ) {
+    options.push({
+      label: loc("Context.Refill"),
+      icon: "fa-solid fa-droplet fa-fw",
+      group: "state",
+      onClick: async () => {
+        const name = item.name;
+        const { pints } = await refillVessel(item);
+        ui.notifications.info(loc(pints ? "Provisions.Refill.One" : "Provisions.Refill.OneFull", { item: name, pints }));
+      }
     });
   }
   if ( !game.user.isGM || !slotsApplyTo(item.actor) ) return;

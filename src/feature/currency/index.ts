@@ -3,6 +3,7 @@ import { isPlayerActor } from "./common.js";
 import { invoicesActive } from "./invoices.js";
 import "./audit.js";
 import "./sheet-input.js";
+import "./party-fund.js";
 
 /* Coins: audit of coin changes, sums in the coin fields, invoices. */
 

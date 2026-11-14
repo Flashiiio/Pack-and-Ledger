@@ -34,12 +34,14 @@ import "./core/settings/provision-settings.js";
 
 // ── 3. Socket (GM requests, notifications) ──
 import "./core/socket.js";
+import "./core/pack-folder.js";
 
 // ── 4. Features ──
 import "./feature/activity-log.js";
 import "./feature/body-weight.js";
 import "./feature/enforcement.js";
 import "./feature/container-tear.js";
+import "./feature/ammo-containers.js";
 import "./feature/piles/index.js";
 import "./feature/trade/index.js";
 import "./feature/currency/index.js";

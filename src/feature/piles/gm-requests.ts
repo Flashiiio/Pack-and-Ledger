@@ -10,6 +10,10 @@ import { PILE_SIZE, addToPile, afterPileChange, blockedFor, changeCoins, createP
 import { logChange } from "../activity-log.js";
 import { logModuleCoins } from "../currency/audit.js";
 import { isBodyPart } from "../../core/policy/slots.js";
+import { refusesCoins } from "../../core/policy/ammo-containers.js";
+import { partyMembers } from "../provisions/provisions.js";
+import { splitCoins } from "../currency/coins.js";
+import { addToFund, announceShare, takesIntoFund } from "../currency/party-fund.js";
 
 /* -------------------------------------------- */
 /*  GM: Request Handling                         */
@@ -98,6 +102,7 @@ async function executeTake(data: any, senderId?: any) {
   const taken: any = [];
   const logged: string[] = []; // Items for the GM's log, with the real names of unidentified items.
   let coinsBefore: any = null;    // Coins go to the coin log instead.
+  let intoFund = false;
   for ( const id of ids ) {
     const item = pile.items.get(id); // May already be gone together with a container taken before.
     if ( !isPhysicalData(item) ) continue;
@@ -116,14 +121,20 @@ async function executeTake(data: any, senderId?: any) {
       coinsBefore = coinsOf(actor);
       await changeCoins(actor, coins, 1);
       await changeCoins(holder, coins, -1);
-      taken.push(coinsLabel(coins));
+      // Into the group fund: in the character's purse, noted as the group's.
+      if ( takesIntoFund(actor, data.fund === true) ) {
+        await addToFund(actor, coins as any);
+        intoFund = true;
+        taken.push(loc("Fund.Taken", { coins: coinsLabel(coins) }));
+      }
+      else taken.push(coinsLabel(coins));
     }
   }
   if ( !taken.length ) return coinsOnly ? notifyUser(user.id, "warn", loc("Notify.NoCoinsHere")) : undefined;
 
   await afterPileChange(token);
   if ( logged.length ) logChange("pickup", { actor: actor.name, data: { item: logged.join(", ") }, items: logged }, user);
-  if ( coinsBefore ) logModuleCoins("pileTake", actor, user, coinsBefore, token.name);
+  if ( coinsBefore ) logModuleCoins(intoFund ? "pileFund" : "pileTake", actor, user, coinsBefore, token.name);
   notifyUser(user.id, "info", loc("Notify.PickedUp", { actor: actor.name, item: taken.join(", ") }));
 }
 
@@ -236,13 +247,14 @@ async function executeDropCoins(data: any, senderId?: any) {
     return notifyUser(user.id, "warn", loc("Notify.OutOfRange", { actor: actor.name }));
   }
 
-  // Only what the actor really has.
-  const own = coinsOf(actor);
+  // Only what the actor really has (the player was asked about coins of the group fund).
+  const own: any = coinsOf(actor);
   const amounts = Object.fromEntries(COINS.map(d =>
     [d, Math.clamp(Math.floor(Number(data.currency?.[d]) || 0), 0, own[d])]));
   if ( !hasCoins(amounts) ) return notifyUser(user.id, "warn", loc("Notify.NoCoins", { actor: actor.name }));
   const container = (target && data.containerId) ? target.actor.items.get(data.containerId) : null;
   if ( data.containerId && (container?.type !== "container") ) return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  if ( container && refusesCoins(container) ) return notifyUser(user.id, "warn", loc("Notify.NoCoinsInto", { container: container.name }));
 
   const coinsBefore: any = coinsOf(actor);
   await changeCoins(actor, amounts, -1);
@@ -267,6 +279,59 @@ async function executeDropCoins(data: any, senderId?: any) {
   logModuleCoins("pileDrop", actor, user, coinsBefore, target?.name ?? "");
 }
 
+/**
+ * Share the coins of a pile (or of a container in it) equally among the group. What cannot be shared equally goes to
+ * the character who shares them out.
+ * @param {object} data
+ * @param {string} data.sceneId
+ * @param {string} data.tokenId
+ * @param {string} [data.containerId]  The coins of this container in the pile.
+ * @param {string} data.actorUuid      The character sharing them out (a member of the group).
+ * @param {string[]} data.memberIds    The group as the player saw it when agreeing.
+ */
+async function executeSplitCoins(data: any, senderId?: any) {
+  const user = requestingUser(data, senderId);
+  if ( !user ) return;
+  const actor = await ownedActor(data.actorUuid, user);
+  if ( !actor ) return notifyUser(user.id, "warn", loc("Notify.NoPickupActor"));
+  const token = game.scenes.get(data.sceneId)?.tokens.get(data.tokenId);
+  if ( !isPileToken(token) ) return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  if ( !user.isGM && !withinRange(token.parent, actor, pileCenter(token), token.width) ) {
+    return notifyUser(user.id, "warn", loc("Notify.OutOfRange", { actor: actor.name }));
+  }
+  const blocked = blockedFor(user, token);
+  if ( blocked ) return notifyUser(user.id, "warn", loc(blocked));
+
+  // The group must still be the one the player agreed to share with.
+  const members = partyMembers();
+  if ( !members.includes(actor) ) return notifyUser(user.id, "warn", loc("Notify.SplitNotMember", { actor: actor.name }));
+  const agreed = Array.isArray(data.memberIds) ? [...data.memberIds].sort().join() : "";
+  if ( agreed !== members.map((m: any) => m.id).sort().join() ) return notifyUser(user.id, "warn", loc("Notify.SplitChanged"));
+
+  const holder = data.containerId ? token.actor.items.get(data.containerId) : token.actor;
+  if ( data.containerId && (holder?.type !== "container") ) return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  const coins = coinsOf(holder);
+  if ( !hasCoins(coins) ) return notifyUser(user.id, "warn", loc("Notify.NoCoinsHere"));
+
+  const { share, rest } = splitCoins(coins, members.length);
+  await changeCoins(holder, coins, -1);
+  for ( const member of members ) {
+    const amounts = (member === actor) ? Object.fromEntries(COINS.map(d => [d, (share as any)[d] + (rest as any)[d]])) : share;
+    if ( !hasCoins(amounts) ) continue;
+    const before: any = coinsOf(member);
+    await changeCoins(member, amounts, 1);
+    logModuleCoins("pileSplit", member, user, before, token.name);
+    // The players of the others read in the chat what came their way.
+    if ( member !== actor ) await announceShare(member, amounts as any, { by: actor, from: token.name, skip: user.id });
+  }
+  await afterPileChange(token);
+  notifyUser(user.id, "info", loc(hasCoins(rest) ? "Notify.SplitDoneRest" : "Notify.SplitDone", {
+    coins: coinsLabel(coins), count: members.length, share: coinsLabel(share) || loc("Pile.Split.Nothing"),
+    actor: actor.name, rest: coinsLabel(rest)
+  }));
+}
+
 registerHandler("pileTake", serial(executeTake));
+registerHandler("pileSplitCoins", serial(executeSplitCoins));
 registerHandler("pileDrop", serial(executeDrop));
 registerHandler("pileDropCoins", serial(executeDropCoins));

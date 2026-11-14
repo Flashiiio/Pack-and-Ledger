@@ -32,7 +32,8 @@ const TABS: any[] = [
         "enforceCapacity",
         { key: "overfillMode", requires: ["enforceCapacity"] },
         { key: "overfillHardLimit", requires: ["enforceCapacity", "overfillMode=risk"], unit: "%", min: 0, step: 1 },
-        { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "×", min: 0, step: 0.1 }
+        { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "×", min: 0, step: 0.1 },
+        "ammoContainers"
       ]
     }]
   },
@@ -105,7 +106,8 @@ const TABS: any[] = [
       },
       { title: "CoinInput", fields: ["currencyMath", "currencyAutoConvert"] },
       { title: "CoinChange", hint: "CoinChangeHint", fields: ["currencyPlatinum", "currencyElectrum"] },
-      { title: "Invoices", fields: ["invoicesEnabled"] }
+      { title: "Invoices", fields: ["invoicesEnabled"] },
+      { title: "PartyFund", fields: ["partyFund"] }
     ]
   },
   {

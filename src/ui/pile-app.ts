@@ -1,6 +1,9 @@
 import { esc, loc } from "./helpers.js";
 import { COINS, coinsLabel, coinsOf, discoverDC, hasCoins, isIdentifiable, isUnidentified, pileCustomName, pileLock, thievesTools } from "../core/policy/pile-rules.js";
-import { canReach, dropCoins, dropDataOnPile, requestTake, resolveTaker } from "../feature/piles/client.js";
+import { canReach, dropCoins, dropDataOnPile, requestSplitCoins, requestTake, resolveTaker } from "../feature/piles/client.js";
+import { partyMembers } from "../feature/provisions/provisions.js";
+import { fundMode } from "../feature/currency/party-fund.js";
+import { refusesCoins } from "../core/policy/ammo-containers.js";
 import { configurePile, effectiveDiscoverDC, effectiveLockDC, hasKey, mysteryKeyOf, pickLock, triedMysteryKey, useKey, useMysteryKey } from "../feature/piles/secrets.js";
 import { COIN_ICON, automaticLook } from "../feature/piles/pile-tokens.js";
 import { setItemIdentified, setPileCoins } from "../feature/piles/gm-tools.js";
@@ -46,6 +49,8 @@ function getPileAppClass() {
         take: PileApp.#onTake,
         takeAll: PileApp.#onTakeAll,
         takeCoins: PileApp.#onTakeCoins,
+        splitCoins: PileApp.#onSplitCoins,
+        fundCoins: PileApp.#onFundCoins,
         dropCoins: PileApp.#onDropCoins,
         dropCoinsInto: PileApp.#onDropCoinsInto,
         useKey: PileApp.#onUseKey,
@@ -299,7 +304,14 @@ function getPileAppClass() {
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = coinsLabel(coins);
-      row.append(img, name, button({ action: "takeCoins", icon: "fa-solid fa-hand", tooltip: loc("Pile.TakeCoins") }));
+      // Sharing out and the group fund need a group of at least two.
+      const group = partyMembers().length > 1;
+      const mode = fundMode();
+      const split = group ? [button({ action: "splitCoins", icon: "fa-solid fa-scale-balanced", tooltip: loc("Pile.Split.Button") })] : [];
+      const fund = (group && (mode === "button"))
+        ? [button({ action: "fundCoins", icon: "fa-solid fa-piggy-bank", tooltip: loc("Pile.FundCoins") })] : [];
+      const take = (group && (mode === "always")) ? loc("Pile.TakeCoinsFund") : loc("Pile.TakeCoins");
+      row.append(img, name, ...split, ...fund, button({ action: "takeCoins", icon: "fa-solid fa-hand", tooltip: take }));
       return row;
     }
 
@@ -341,8 +353,8 @@ function getPileAppClass() {
       if ( unit ) weight.textContent = `${round(unit * quantity)} ${weightUnitsLabel(item.system.weight.units)}`;
 
       row.append(img, name, qty, weight);
-      // Containers (chests, pouches …) can hold coins.
-      if ( (item.type === "container") && this.#takerHasCoins ) {
+      // Containers (chests, pouches …) can hold coins; waterskins and ammunition containers cannot.
+      if ( (item.type === "container") && !refusesCoins(item) && this.#takerHasCoins ) {
         row.append(button({
           action: "dropCoinsInto", icon: "fa-solid fa-coins", cls: "coins-into",
           tooltip: loc("Pile.DropCoinsInto", { container: item.name })
@@ -404,6 +416,16 @@ function getPileAppClass() {
       requestTake(this.token, { coins: true, containerId });
     }
 
+    static #onSplitCoins(this: PileApp, event: any, target?: any) {
+      const containerId = target.closest("[data-container-id]")?.dataset.containerId ?? null;
+      requestSplitCoins(this.token, { containerId });
+    }
+
+    static #onFundCoins(this: PileApp, event: any, target?: any) {
+      const containerId = target.closest("[data-container-id]")?.dataset.containerId ?? null;
+      requestTake(this.token, { coins: true, containerId, fund: true });
+    }
+
     static #onDropCoinsInto(this: PileApp, event: any, target?: any) {
       const taker = resolveTaker();
       const containerId = target.closest("[data-item-id]")?.dataset.itemId;
@@ -442,7 +464,22 @@ function getPileAppClass() {
 
 /* -------------------------------------------- */
 
+/**
+ * Open the window of a pile. A player has to stand close enough with their character (the selected token, otherwise
+ * their assigned character); the GM opens any pile. A window already open stays open.
+ */
 export function openPileApp(token?: any) {
+  if ( !game.user.isGM && !apps.get(token.uuid)?.rendered ) {
+    const taker = resolveTaker();
+    if ( !taker ) {
+      ui.notifications.warn(loc("Notify.NoOpenActor"));
+      return null;
+    }
+    if ( !canReach(token, taker) ) {
+      ui.notifications.warn(loc("Notify.OutOfRangeOpen", { actor: taker.name }));
+      return null;
+    }
+  }
   let app = apps.get(token.uuid);
   if ( !app ) {
     const PileApp = getPileAppClass();
@@ -465,6 +502,23 @@ export function refreshPileApps(token?: any) {
     for ( const app of pendingRenders ) if ( app.rendered ) app.render();
     pendingRenders.clear();
   }, 50);
+}
+
+/**
+ * Close the pile windows a player's character is no longer close enough to (after a token moved). The pile's own
+ * scene must be the one shown; the GM's windows stay open.
+ */
+export function closeOutOfReach() {
+  if ( game.user.isGM ) return;
+  for ( const app of apps.values() ) {
+    if ( !app.rendered ) continue;
+    const token = app.token;
+    if ( !token?.parent || (token.parent !== canvas.scene) ) continue;
+    const taker = resolveTaker();
+    if ( taker && canReach(token, taker) ) continue;
+    app.close();
+    ui.notifications.info(loc("Notify.PileClosedOutOfRange", { actor: taker?.name ?? game.user.name, pile: token.name }));
+  }
 }
 
 export function closePileApp(token?: any) {

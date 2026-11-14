@@ -4,6 +4,8 @@ import { isPile, logName } from "./pile-rules.js";
 import { logWarn } from "../../debug/logger.js";
 import { convertWeight, findOverflow, itemCount, itemWeightIn, weightUnitsLabel } from "./capacity.js";
 import { logChange } from "../../feature/activity-log.js";
+import { AMMO_CONTAINERS, acceptsItem, ammoContainerKind, ammoKind, needsAmmoContainer } from "./ammo-containers.js";
+import { isWater, isWaterskin, isWaterskinKind, waterskinRulesActive } from "./waterskins.js";
 
 export function isPhysical(item?: any) {
   return PHYSICAL_TYPES.has(item?.type);
@@ -263,21 +265,34 @@ export function checkTopLevel(actor: any, item?: any, { pendingSlots={}, weight:
 export function findStowTarget(actor: any, item: any, options?: any, { additions=[], containers=[] }: any={}) {
   const count = itemCount(item);
   const weightIn = (units?: any) => itemWeightIn(item, units);
+  const water = isWater(item);
+  // A jug or flask is no place to stow things; a waterskin (often named like a jug) is, for water.
   const candidates = actor.items
-    .filter((c?: any) => (c.type === "container") && (c.id !== item.id) && (getSlot(c) !== "jug")
+    .filter((c?: any) => (c.type === "container") && (c.id !== item.id) && ((getSlot(c) !== "jug") || (water && isWaterskin(c)))
       && (c.system.canViewContents !== false))
     .sort((a: any, b?: any) => ((a.system.container ? 1 : 0) - (b.system.container ? 1 : 0)) || ((a.sort ?? 0) - (b.sort ?? 0)));
-  for ( const container of candidates ) {
-    if ( !findOverflow(container, { count, weightIn, pending: additions }) ) return container;
+  // Arrows go into the quiver first, if there is one with room, and water into a waterskin.
+  const first = candidates.filter((c?: any) => acceptsItem(c, item) || (water && isWaterskin(c)));
+  for ( const container of [...first, ...candidates.filter((c?: any) => !first.includes(c))] ) {
+    if ( !findOverflow(container, { count, weightIn, pending: additions, item }) ) return container;
   }
 
   // Containers created in the same batch: recorded by earlier pre-hooks, or (older cores) visible via options.data.
   if ( !options?.keepId ) return null;
-  const stub = containers.find((c?: any) => c.id !== item.id);
+  // An ammunition container created in the same batch takes only its ammunition; arrows and bolts take nothing else.
+  const rulesOn = !!getSetting("ammoContainers");
+  const kind = ammoKind(item);
+  const takes = (holds?: any) => !!holds && AMMO_CONTAINERS[holds]?.compartments.some(c => c.kinds.includes(kind as any));
+  const fits = (holds?: any) => !rulesOn || (holds ? takes(holds) : !needsAmmoContainer(item));
+  // A waterskin created in the same batch takes only water.
+  const wet = (waterskin: boolean) => !waterskin || !waterskinRulesActive() || water;
+  const stub = containers.find((c?: any) => (c.id !== item.id) && fits(c.ammo) && wet(!!c.waterskin));
   if ( stub ) return stub;
   if ( Array.isArray(options.data) ) {
     const data = options.data.find((d?: any) => (d.type === "container") && d._id && (d._id !== item.id)
-      && !d.system?.container && !isJugName(d.name) && (d.flags?.[MODULE_ID]?.[FLAG_SLOT] !== "jug"));
+      && !d.system?.container
+      && ((!isJugName(d.name) && (d.flags?.[MODULE_ID]?.[FLAG_SLOT] !== "jug")) || (water && isWaterskinKind(d)))
+      && fits(ammoContainerKind(d)) && wet(isWaterskinKind(d)));
     if ( data ) return { id: data._id, name: data.name };
   }
   return null;

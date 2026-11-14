@@ -79,6 +79,32 @@ registerHandler("notify", ({ level, message }) => {
 });
 Hooks.once("ready", () => registerSocket());
 
+// src/core/pack-folder.ts
+var FOLDER_NAME = "Pack & Ledger";
+var isOurs = (pack) => pack?.metadata?.packageType === "world" && String(pack.metadata.name).startsWith(MODULE_ID);
+var queue = Promise.resolve();
+function placeInFolder(pack, { fresh: fresh2 = false } = {}) {
+  if (!game.user.isGM || !isOurs(pack)) return Promise.resolve();
+  queue = queue.then(async () => {
+    const placed = game.settings.get(MODULE_ID, "packsPlaced") ?? [];
+    if (!fresh2 && placed.includes(pack.collection)) return;
+    if (!pack.folder) {
+      let folder = game.folders.find((f) => f.type === "Compendium" && f.getFlag(MODULE_ID, "packs"));
+      folder ??= await foundry.documents.Folder.implementation.create({ name: FOLDER_NAME, type: "Compendium", flags: { [MODULE_ID]: { packs: true } } });
+      await pack.setFolder(folder);
+    }
+    if (!placed.includes(pack.collection)) await game.settings.set(MODULE_ID, "packsPlaced", [...placed, pack.collection]);
+  }).catch((err) => console.error(`${MODULE_ID} | Could not put the compendium "${pack.collection}" into its folder`, err));
+  return queue;
+}
+Hooks.once("init", () => {
+  game.settings.register(MODULE_ID, "packsPlaced", { scope: "world", config: false, type: Array, default: [] });
+});
+Hooks.once("ready", () => {
+  if (!game.user.isGM || game.users.activeGM !== game.user) return;
+  for (const pack of game.packs) if (isOurs(pack)) placeInFolder(pack);
+});
+
 // src/debug/file-log.ts
 var LINE = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \[(INFO|WARN|ERROR)\s*\] (.*)$/;
 var TAG = /^\[(\w+):([^\]\n]*)\] /;
@@ -155,6 +181,7 @@ async function ensureLogPack() {
     const Compendium = foundry.documents.collections.CompendiumCollection;
     const pack = await Compendium.createCompendium({ label: LOG_PACK_LABEL, name: LOG_PACK_NAME, type: "JournalEntry" });
     await pack.configure({ ownership: { ...OWNERSHIP } });
+    await placeInFolder(pack, { fresh: true });
     return pack;
   })().finally(() => {
     creating = null;
@@ -215,8 +242,8 @@ var LogStore = class {
     return this.#queue;
   }
   /** Entries as the text of one document. */
-  #text(texts) {
-    return texts.length ? `${texts.join("\n")}
+  #text(texts2) {
+    return texts2.length ? `${texts2.join("\n")}
 ` : "";
   }
   #documentData(day, time, text3, suffix) {
@@ -332,8 +359,8 @@ var LogStore = class {
       removed += matched;
       if (!rest.length) await pack.documentClass.deleteDocuments([chunk.id], { pack: pack.collection });
       else {
-        const flags = { [MODULE_ID]: { text: this.#text(rest) } };
-        await pack.documentClass.updateDocuments([{ _id: chunk.id, flags }], { pack: pack.collection });
+        const flags2 = { [MODULE_ID]: { text: this.#text(rest) } };
+        await pack.documentClass.updateDocuments([{ _id: chunk.id, flags: flags2 }], { pack: pack.collection });
       }
     }
     return { removed };
@@ -376,8 +403,8 @@ var LogStore = class {
     return compacted;
   }
 };
-function joinChunks(texts) {
-  const lines = texts.join("").split("\n").filter((line) => line.trim());
+function joinChunks(texts2) {
+  const lines = texts2.join("").split("\n").filter((line) => line.trim());
   return lines.length ? `${lines.join("\n")}
 ` : "";
 }
@@ -515,7 +542,8 @@ var TABS = [
         "enforceCapacity",
         { key: "overfillMode", requires: ["enforceCapacity"] },
         { key: "overfillHardLimit", requires: ["enforceCapacity", "overfillMode=risk"], unit: "%", min: 0, step: 1 },
-        { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "\xD7", min: 0, step: 0.1 }
+        { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "\xD7", min: 0, step: 0.1 },
+        "ammoContainers"
       ]
     }]
   },
@@ -588,7 +616,8 @@ var TABS = [
       },
       { title: "CoinInput", fields: ["currencyMath", "currencyAutoConvert"] },
       { title: "CoinChange", hint: "CoinChangeHint", fields: ["currencyPlatinum", "currencyElectrum"] },
-      { title: "Invoices", fields: ["invoicesEnabled"] }
+      { title: "Invoices", fields: ["invoicesEnabled"] },
+      { title: "PartyFund", fields: ["partyFund"] }
     ]
   },
   {
@@ -1029,6 +1058,16 @@ function getSettingsAppClass() {
 var DENOMINATIONS = ["pp", "gp", "ep", "sp", "cp"];
 var COPPER = { pp: 1e3, gp: 100, ep: 50, sp: 10, cp: 1 };
 var emptyCoins = () => ({ pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 });
+function splitCoins(coins, count) {
+  const share = emptyCoins(), rest = emptyCoins();
+  const n = Math.max(1, Math.floor(count) || 1);
+  for (const d of DENOMINATIONS) {
+    const total = Math.max(0, Math.floor(Number(coins[d]) || 0));
+    share[d] = Math.floor(total / n);
+    rest[d] = total - share[d] * n;
+  }
+  return { share, rest };
+}
 var whole = (value) => Math.trunc(Number(value) || 0);
 function coinsOf(source) {
   const currency = source?.system?.currency ?? source ?? {};
@@ -1039,6 +1078,7 @@ var difference = (before, after) => Object.fromEntries(DENOMINATIONS.map((d) => 
 var add = (a, b, sign = 1) => Object.fromEntries(DENOMINATIONS.map((d) => [d, a[d] + sign * b[d]]));
 var isZero = (coins) => DENOMINATIONS.every((d) => !coins[d]);
 var hasNegative = (coins) => DENOMINATIONS.some((d) => coins[d] < 0);
+var sameCoins = (a, b) => DENOMINATIONS.every((d) => a[d] === b[d]);
 function changeOrder() {
   return DENOMINATIONS.filter((d) => {
     if (d === "pp") return !!getSetting("currencyPlatinum");
@@ -1124,8 +1164,24 @@ function goldText(copper, { signed = false } = {}) {
   return `${sign}${text3} ${abbreviation("gp")}`;
 }
 
+// src/ui/coin-html.ts
+function denominationHtml(d) {
+  const config = CONFIG.DND5E?.currencies?.[d];
+  if (!config?.icon) return `<span class="denomination ${d}">${esc(abbreviation(d))}</span>`;
+  const label2 = esc(config.label ? game.i18n.localize(config.label) : abbreviation(d));
+  return `<img class="coin-icon ${d}" src="${esc(config.icon)}" alt="${label2}" data-tooltip="${label2}">`;
+}
+function coinsHtml(coins, empty = "") {
+  const parts = DENOMINATIONS.filter((d) => coins[d] > 0).map((d) => `<span class="pl-coin">${coins[d].toLocaleString(game.i18n.lang)}&nbsp;${denominationHtml(d)}</span>`);
+  return parts.length ? `<span class="pl-coins">${parts.join(" ")}</span>` : esc(empty);
+}
+function locCoins(key, data, coins, empty = "") {
+  const mark = "COINS";
+  return esc(loc(key, { ...data, coins: mark })).replace(mark, coinsHtml(coins, empty));
+}
+
 // src/feature/currency/coin-log.ts
-var SOURCES = /* @__PURE__ */ new Set(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "trade"]);
+var SOURCES = /* @__PURE__ */ new Set(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "pileSplit", "pileFund", "fundSplit", "fundDeposit", "fundWithdraw", "trade"]);
 var text = (value, max = 200) => String(value ?? "").slice(0, max);
 var coinsOrNull = (value) => value && typeof value === "object" ? coinsOf(value) : null;
 function clean(raw) {
@@ -1252,12 +1308,6 @@ function storeFilters(filters) {
   } catch {
   }
 }
-function denominationHtml(d) {
-  const config = CONFIG.DND5E?.currencies?.[d];
-  if (!config?.icon) return `<span class="denomination ${d}">${esc(abbreviation(d))}</span>`;
-  const label2 = esc(config.label ? game.i18n.localize(config.label) : abbreviation(d));
-  return `<img class="coin-icon ${d}" src="${esc(config.icon)}" alt="${label2}" data-tooltip="${label2}">`;
-}
 var amountHtml = (n, d, sign) => `<span class="amount">${sign}${Math.abs(n).toLocaleString(game.i18n.lang)}&nbsp;${denominationHtml(d)}</span>`;
 function deltaHtml(coins) {
   const parts = DENOMINATIONS.filter((d) => coins[d]).map((d) => {
@@ -1277,7 +1327,8 @@ function valueHtml(copper) {
   return `<span class="amount">${sign}${text3}&nbsp;${denominationHtml("gp")}</span>`;
 }
 var csvCell = (value) => {
-  const s = String(value ?? "");
+  let s = String(value ?? "");
+  if (/^[=+@\t\r]/.test(s) || /^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 var CoinLogAppClass = null;
@@ -1417,7 +1468,7 @@ function getCoinLogAppClass() {
     }
     #matches(e) {
       const f = this.filters;
-      if (f.players && e.source !== "player") return false;
+      if (f.players && !["player", "fundDeposit", "fundWithdraw"].includes(e.source)) return false;
       if (f.negative && deltaCopper(e) >= 0) return false;
       if (f.flagged && !e.flagged) return false;
       const query = f.search.trim().toLocaleLowerCase(game.i18n.lang);
@@ -1919,8 +1970,8 @@ function describeChange(row, actor) {
 }
 var escapeRegExp = (text3) => text3.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function concentrationSpell(effect) {
-  const flags = isObject(effect.flags) ? effect.flags.dnd5e : null;
-  const uuid = String(flags?.item?.uuid ?? effect.origin ?? "");
+  const flags2 = isObject(effect.flags) ? effect.flags.dnd5e : null;
+  const uuid = String(flags2?.item?.uuid ?? effect.origin ?? "");
   let item = null;
   try {
     item = uuid ? fromUuidSync(uuid) : null;
@@ -1928,7 +1979,7 @@ function concentrationSpell(effect) {
     item = null;
   }
   const prefix = new RegExp(`^${escapeRegExp(game.i18n.localize("EFFECT.DND5E.StatusConcentrating"))}:\\s*`);
-  const name = String(item?.name ?? flags?.item?.data?.name ?? String(effect.name ?? "").replace(prefix, "")).trim() || "?";
+  const name = String(item?.name ?? flags2?.item?.data?.name ?? String(effect.name ?? "").replace(prefix, "")).trim() || "?";
   return { key: uuid || name, name, uuid };
 }
 var activeSpells = (effects) => (Array.isArray(effects) ? effects : []).filter((e) => !e.disabled).map(concentrationSpell);
@@ -2069,7 +2120,7 @@ var SNAPSHOT_FLAG = "snapshot";
 var trackerActive = () => !!getSetting("trackerEnabled");
 var cache = /* @__PURE__ */ new Map();
 var started = false;
-var queue = Promise.resolve();
+var queue2 = Promise.resolve();
 var restoring = /* @__PURE__ */ new Set();
 function requireGM() {
   if (!game.user?.isGM) throw new Error("Game master permission is required.");
@@ -2167,7 +2218,7 @@ function record(actor, userId, rows) {
 }
 var hiddenUser = (user) => !!getSetting("trackerHideGM") && user.isGM;
 function report(event) {
-  queue = queue.then(() => publish(event)).catch((err) => logError("Could not report a character change", err));
+  queue2 = queue2.then(() => publish(event)).catch((err) => logError("Could not report a character change", err));
 }
 var GROUP_DELAY = 1e3;
 var GROUP_MAX = 4e3;
@@ -2628,7 +2679,11 @@ function passes(entry, filter) {
   if (filter === "character") return tagsOf2(entry, "kind").includes(CHARACTER_KIND);
   return entry.level === filter;
 }
-var csvCell2 = (value) => /[",;\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+var csvCell2 = (value) => {
+  let s = String(value ?? "");
+  if (/^[=+@\t\r]/.test(s) || /^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+  return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+};
 var valuesOf = (entries, key) => [...new Set(entries.flatMap((e) => tagsOf2(e, key)))].sort((a, b) => a.localeCompare(b, game.i18n.lang));
 var LogAppClass = null;
 function openLogApp(filter) {
@@ -2852,8 +2907,8 @@ function getLogAppClass() {
       const key = target.dataset.key;
       if (key !== "user" && key !== "actor") return;
       this[key] = this[key] === target.dataset.value ? "" : target.dataset.value;
-      const select = this.element.querySelector(`select[name=${key}]`);
-      if (select) select.value = this[key];
+      const select2 = this.element.querySelector(`select[name=${key}]`);
+      if (select2) select2.value = this[key];
       this.#renderList(this.element);
     }
     /** The snapshot window of the character of an entry. */
@@ -3019,6 +3074,7 @@ Hooks.once("init", () => {
   });
   registerSetting("overfillHardLimit", { type: Number, default: 0 });
   registerSetting("tearChanceFactor", { type: Number, default: 1 });
+  registerSetting("ammoContainers", { type: Boolean, default: true });
 });
 
 // src/core/settings/slot-settings.ts
@@ -3094,6 +3150,175 @@ __export(capacity_exports, {
   itemWeightIn: () => itemWeightIn,
   weightUnitsLabel: () => weightUnitsLabel
 });
+
+// src/core/policy/waterskins.ts
+var WATERSKIN_NAME = /^\s*(waterskins?|wasserschl[aä]uche?|wasserbeutel|feldflaschen?)\b/i;
+var WATER_NAME = /\b(water|wasser|trinkwasser)\b/i;
+var waterskinRulesActive = () => true;
+function isWaterskinKind(container) {
+  if (container?.type !== "container") return false;
+  const identifier = String(container.system?.identifier ?? "");
+  if (/^waterskin\b/i.test(identifier)) return true;
+  return WATERSKIN_NAME.test(container._source?.name ?? container.name ?? "");
+}
+function isWaterskin(container) {
+  return waterskinRulesActive() && isWaterskinKind(container);
+}
+function hasProperty(item, property) {
+  const properties = item.system?.properties;
+  if (!properties) return false;
+  if (typeof properties.has === "function") return properties.has(property);
+  return Array.isArray(properties) && properties.includes(property);
+}
+function isWater(item) {
+  if (!item || !["consumable", "loot"].includes(item.type)) return false;
+  const type = item.system?.type ?? {};
+  if (item.type === "consumable") {
+    if (type.value && type.value !== "food") return false;
+    if (hasProperty(item, "hydrating")) return !hasProperty(item, "nutritious");
+    if (type.subtype === "water") return true;
+    if (type.subtype && type.subtype !== "") return false;
+  }
+  if (/^water\b/i.test(String(item.system?.identifier ?? ""))) return true;
+  return WATER_NAME.test(item._source?.name ?? item.name ?? "");
+}
+function waterskinRefusal(container, item) {
+  if (!isWaterskin(container) || isWater(item)) return null;
+  return { container, kind: "waterOnly", value: 0, max: 0, units: "" };
+}
+
+// src/core/policy/ammo-containers.ts
+var AMMUNITION = ["arrow", "crossbowBolt", "blowgunNeedle", "slingBullet", "firearmBullet", "energyCell"];
+var AMMO_CONTAINERS = {
+  quiver: { compartments: [{ id: "arrows", kinds: ["arrow"], max: 20 }] },
+  boltCase: { compartments: [{ id: "bolts", kinds: ["crossbowBolt"], max: 20 }] },
+  ehlonna: {
+    weightless: true,
+    compartments: [
+      { id: "ammunition", kinds: AMMUNITION, max: 60 },
+      { id: "javelins", kinds: ["javelin", "dart", "dagger", "knife", "handaxe", "lighthammer"], max: 18 },
+      { id: "long", kinds: ["long"], max: 6 }
+    ]
+  },
+  needleCase: { compartments: [{ id: "needles", kinds: ["blowgunNeedle"], max: 0 }] },
+  slingPouch: { compartments: [{ id: "slingBullets", kinds: ["slingBullet"], max: 0 }] },
+  ammoPouch: { compartments: [{ id: "firearmBullets", kinds: ["firearmBullet"], max: 0 }] },
+  dartCase: { compartments: [{ id: "darts", kinds: ["dart"], max: 0 }] },
+  javelinQuiver: { compartments: [{ id: "javelinsOnly", kinds: ["javelin"], max: 0 }] },
+  knifeSheath: { compartments: [{ id: "knives", kinds: ["knife", "dagger"], max: 0 }] }
+};
+var CONTAINER_NAMES = [
+  ["ehlonna", /ehlonna/i],
+  ["javelinQuiver", /javelin[\s-]*quiver|wurfspeerköcher|wurfspeer-köcher/i],
+  ["boltCase", /bolt[\s-]*case|case,?\s*crossbow\s*bolt|boltcase|bolzen(kasten|köcher|etui|behälter|tasche)/i],
+  ["needleCase", /needle[\s-]*case|nadeletui/i],
+  ["slingPouch", /sling[\s-]*bullet[\s-]*pouch|schleuderkugel(beutel|tasche)/i],
+  ["ammoPouch", /ammunition[\s-]*pouch|munitionsbeutel/i],
+  ["dartCase", /dart[\s-]*case|wurfpfeiletui/i],
+  ["knifeSheath", /throwing[\s-]*knife[\s-]*sheath|wurfmesserscheide/i],
+  ["quiver", /^\s*(quiver|köcher)\b/i]
+];
+var ammoRulesActive = () => !!getSetting("ammoContainers");
+function ammoContainerOf(container) {
+  if (container?.type !== "container") return null;
+  if (!ammoRulesActive()) return null;
+  return ammoContainerKind(container);
+}
+function ammoContainerKind(container) {
+  if (container?.type !== "container") return null;
+  const flag = container.flags?.[MODULE_ID]?.holds;
+  if (flag && flag in AMMO_CONTAINERS) return flag;
+  const source = String(container._stats?.compendiumSource ?? "");
+  const types = globalThis.CONFIG?.DND5E?.containerTypes ?? {};
+  if (types.quiver && source.endsWith(types.quiver)) return "quiver";
+  if (types.boltcase && source.endsWith(types.boltcase)) return "boltCase";
+  const identifier = String(container.system?.identifier ?? "").replace(/-/g, " ");
+  for (const [kind, regex] of CONTAINER_NAMES) {
+    if (regex.test(container.name ?? "") || identifier && regex.test(identifier)) return kind;
+  }
+  return null;
+}
+function ammoContainerRule(container) {
+  const kind = ammoContainerOf(container);
+  return kind ? AMMO_CONTAINERS[kind] : null;
+}
+function isSpecialContainer(container) {
+  return isWaterskin(container) || !!ammoContainerOf(container);
+}
+var refusesCoins = isSpecialContainer;
+function hasWeightlessContents(container) {
+  if (container?.system?.properties?.has?.("weightlessContents")) return true;
+  return ammoContainerRule(container)?.weightless === true;
+}
+var LONG_WEAPONS = /* @__PURE__ */ new Set(["longbow", "shortbow", "spear", "quarterstaff", "pike", "glaive", "halberd", "lance", "trident"]);
+var THROWN_WEAPONS = /* @__PURE__ */ new Set(["javelin", "dart", "dagger", "handaxe", "lighthammer"]);
+var ITEM_NAMES = [
+  ["javelin", /\b(javelins?|wurfspeere?)\b/i],
+  ["dart", /\b(darts?|wurfpfeile?)\b/i],
+  ["knife", /\b(throwing knif(e|es)|throwing knives|knives|knife|wurfmesser|messer)\b/i],
+  ["dagger", /\b(daggers?|dolche?)\b/i],
+  ["arrow", /\b(arrows?|pfeile?)\b/i],
+  ["crossbowBolt", /\b(crossbow bolts?|bolts?|armbrustbolzen|bolzen)\b/i],
+  ["blowgunNeedle", /\b(blowgun needles?|needles?|blasrohrnadeln?|nadeln?)\b/i],
+  ["slingBullet", /\b(sling bullets?|schleuderkugeln?|schleudergeschosse?)\b/i],
+  ["firearmBullet", /\b(firearm bullets?|bullets?|kugeln?|patronen?)\b/i],
+  ["long", /\b(longbows?|shortbows?|bows?|langbogen|kurzbogen|bogen|quarterstaffs?|staffs?|staves|kampfstab|stab|spears?|speere?|pikes?|pieken?|glaives?|gleven?|halberds?|hellebarden?|lances?|lanzen?|tridents?|dreizacke?)\b/i]
+];
+function ammoKind(item) {
+  if (!item || item.type === "container") return null;
+  const type = item.system?.type ?? {};
+  if (item.type === "consumable") {
+    if (type.value === "ammo" && AMMUNITION.includes(type.subtype)) return type.subtype;
+    if (type.value && type.value !== "ammo") return null;
+  }
+  if (item.type === "weapon") {
+    const base = type.baseItem;
+    if (THROWN_WEAPONS.has(base)) return base;
+    if (LONG_WEAPONS.has(base)) return "long";
+  }
+  const name = item.name ?? "";
+  for (const [kind, regex] of ITEM_NAMES) if (regex.test(name)) return kind;
+  return null;
+}
+function compartmentOf(rule, item) {
+  const kind = ammoKind(item);
+  if (!kind) return null;
+  return rule.compartments.find((c) => c.kinds.includes(kind)) ?? null;
+}
+function acceptsItem(container, item) {
+  const rule = ammoContainerRule(container);
+  return !!rule && !!compartmentOf(rule, item);
+}
+var OWN_CONTAINER_ONLY = ["arrow", "crossbowBolt"];
+function needsAmmoContainer(item) {
+  if (item?.type !== "consumable" || item.system?.type?.value !== "ammo") return false;
+  return OWN_CONTAINER_ONLY.includes(ammoKind(item));
+}
+function contentRefusal(container, item, { count = 1, excluded: excluded2 = /* @__PURE__ */ new Set(), pending = [] } = {}) {
+  if (container?.type === "container" && ammoContainerOf(item)) return { container, kind: "wornOnly", value: 0, max: 0, units: "" };
+  const water = waterskinRefusal(container, item);
+  if (water) return water;
+  const rule = ammoContainerRule(container);
+  if (!rule) {
+    if (container?.type !== "container" || !ammoRulesActive() || !needsAmmoContainer(item)) return null;
+    return { container, kind: "ammoOnly", value: 0, max: 0, units: "" };
+  }
+  const compartment = compartmentOf(rule, item);
+  if (!compartment) return { container, kind: "content", value: 0, max: 0, units: "", holds: ammoContainerOf(container) };
+  if (!compartment.max) return null;
+  let used = count;
+  for (const i of container.actor?.items ?? []) {
+    if (i.system?.container !== container.id || excluded2.has(i.id)) continue;
+    if (compartmentOf(rule, i) === compartment) used += Number(i.system?.quantity ?? 1) || 0;
+  }
+  for (const p of pending) {
+    if (p.containerId === container.id && p.item && compartmentOf(rule, p.item) === compartment) used += p.count;
+  }
+  if (used <= compartment.max) return null;
+  return { container, kind: "compartment", value: used, max: compartment.max, units: "", compartment: compartment.id };
+}
+
+// src/core/policy/capacity.ts
 function defaultWeightUnits() {
   try {
     return globalThis.dnd5e?.utils?.defaultUnits?.("weight") ?? "lb";
@@ -3146,7 +3371,7 @@ function itemWeightIn(item, units, { excludeId, depth = 0 } = {}) {
   const isContainer = item.type === "container";
   const quantity = isContainer ? 1 : sys.quantity ?? 1;
   const own = convertWeight((sys.weight?.value ?? 0) * quantity, sys.weight?.units, units);
-  if (!isContainer || sys.properties?.has?.("weightlessContents") || depth >= MAX_DEPTH) return own;
+  if (!isContainer || hasWeightlessContents(item) || depth >= MAX_DEPTH) return own;
   return own + contentsWeight(item, units, { excludeId, depth: depth + 1 });
 }
 function contentsWeight(container, units, { excludeId, depth = 0 } = {}) {
@@ -3178,7 +3403,7 @@ function getCapacityState(container, { excludeId } = {}) {
   };
 }
 function isWeightless(container) {
-  return container.system?.properties?.has?.("weightlessContents") === true;
+  return hasWeightlessContents(container);
 }
 function pathTo(actor, fromId, ancestorId) {
   let current = actor?.items.get(fromId);
@@ -3190,11 +3415,17 @@ function pathTo(actor, fromId, ancestorId) {
   }
   return null;
 }
-function findOverflow(container, { count = 0, weightIn = () => 0, excludeId, pending = [] } = {}) {
+function findOverflow(container, { count = 0, weightIn = () => 0, excludeId, pending = [], item } = {}) {
   const actor = container.actor;
   const seen = /* @__PURE__ */ new Set();
   const excluded2 = excludeSet(excludeId);
   for (const p of pending) if (p.itemId) excluded2.add(p.itemId);
+  if (item && container?.type === "container" && container.flags?.[MODULE_ID]?.torn !== true) {
+    const refusal = contentRefusal(container, item, { count, excluded: excluded2, pending });
+    if (refusal) return refusal;
+  }
+  const capacityOn = !!getSetting("enforceCapacity");
+  if (!capacityOn && !isSpecialContainer(container)) return null;
   let current = container;
   let weightApplies = true;
   while (current?.type === "container" && !seen.has(current.id) && seen.size < MAX_DEPTH) {
@@ -3218,6 +3449,7 @@ function findOverflow(container, { count = 0, weightIn = () => 0, excludeId, pen
         return { container: current, kind: "weight", value: total, max: maxWeight, units: weightUnitsLabel(units) };
       }
     }
+    if (!capacityOn) break;
     if (isWeightless(current)) weightApplies = false;
     current = current.system?.container ? actor?.items.get(current.system.container) : null;
   }
@@ -3309,43 +3541,6 @@ Hooks.once("init", () => {
   registerSetting("bodyWeightPercent", { type: Number, default: 25, onChange: refreshActors });
 });
 
-// src/core/settings/currency-settings.ts
-Hooks.once("init", () => {
-  registerSetting("currencyAudit", { type: Boolean, default: true });
-  registerSetting("currencyAuditGM", { type: Boolean, default: true });
-  registerSetting("currencyAskReason", { type: Boolean, default: true });
-  registerSetting("currencySuspiciousCount", { type: Number, default: 3 });
-  registerSetting("currencySuspiciousSeconds", { type: Number, default: 1 });
-  registerSetting("currencyMath", { type: Boolean, default: true });
-  registerSetting("currencyAutoConvert", { type: Boolean, default: true });
-  registerSetting("currencyPlatinum", { type: Boolean, default: false });
-  registerSetting("currencyElectrum", { type: Boolean, default: false });
-  registerSetting("invoicesEnabled", { type: Boolean, default: true });
-  game.settings.register(MODULE_ID, "invoiceTemplates", { scope: "world", config: false, type: Array, default: [] });
-  game.settings.register(MODULE_ID, "invoiceTemplatesSeeded", { scope: "world", config: false, type: Boolean, default: false });
-});
-
-// src/core/settings/tracker-settings.ts
-Hooks.once("init", () => {
-  registerSetting("trackerEnabled", { type: Boolean, default: true });
-  registerSetting("trackerHideGM", { type: Boolean, default: true });
-  registerSetting("trackerAllOwned", { type: Boolean, default: true });
-  registerSetting("trackerConcentration", { type: Boolean, default: true });
-  registerSetting("trackerSpells", { type: Boolean, default: true });
-  registerSetting("trackerPrivate", { type: Boolean, default: false });
-  registerSetting("trackerPrivateFields", {
-    type: String,
-    default: [
-      "system.details.biography",
-      "system.details.trait",
-      "system.details.ideal",
-      "system.details.bond",
-      "system.details.flaw",
-      "system.details.appearance"
-    ].join(", ")
-  });
-});
-
 // src/feature/currency/common.ts
 function playerOwners(actor, { activeOnly = false } = {}) {
   return game.users.filter((u) => !u.isGM && (!activeOnly || u.active) && actor?.testUserPermission?.(u, "OWNER"));
@@ -3387,20 +3582,20 @@ function sanitize(raw, user) {
     items: Array.isArray(raw.items) ? raw.items.slice(0, 200).map((i) => text2(i)) : []
   };
 }
-var queue2 = [];
+var queue3 = [];
 var flushTimer = null;
 var flushing = Promise.resolve();
 function record2(raw, user) {
   const entry = sanitize(raw, user);
   if (!entry) return;
-  queue2.push(entry);
+  queue3.push(entry);
   flushTimer ??= setTimeout(() => {
     flushTimer = null;
     flushing = flushing.then(flush).catch((err) => logError(`Failed to write the change log`, err));
   }, 250);
 }
 async function flush() {
-  const added = queue2.splice(0);
+  const added = queue3.splice(0);
   if (!added.length) return;
   for (const entry of added.sort((a, b) => a.time - b.time)) writeFileLog("INFO", renderEntry(entry), entry.time, entryTags(entry));
   showNotification("info", added.length === 1 ? loc("Log.Notify", { summary: summarize(added[0]) }) : loc("Log.NotifyMany", { count: added.length }));
@@ -3491,9 +3686,19 @@ function pattern(key) {
     return null;
   }
 }
+function hasProperty2(item, property) {
+  const properties = item.system?.properties;
+  if (!properties) return false;
+  if (typeof properties.has === "function") return properties.has(property);
+  return Array.isArray(properties) && properties.includes(property);
+}
 function provisionKind(item) {
   if (!item?.system) return null;
   if (item.type === "consumable" && item.system.type?.value === "food") {
+    const food2 = hasProperty2(item, "nutritious");
+    const water2 = hasProperty2(item, "hydrating");
+    if (food2 && water2) return "both";
+    if (food2 || water2) return food2 ? "food" : "water";
     const subtype = item.system.type?.subtype;
     if (["food", "water", "both"].includes(subtype)) return subtype;
   }
@@ -3592,6 +3797,77 @@ function refillable(item) {
   if (!Number.isFinite(max) || max <= 0 || item.system.uses.autoDestroy) return false;
   return (Number(item.system.uses.spent) || 0) > 0;
 }
+var WATER_UUID = "Compendium.dnd5e.equipment24.Item.phbWaterpint0000";
+var waterIn = (skin) => (skin.parent?.items ?? []).filter((i) => i.system?.container === skin.id && isWater(i));
+function pintWeight(skin) {
+  const weight = Number(waterIn(skin)[0]?.system?.weight?.value);
+  return weight > 0 ? weight : 1;
+}
+function waterskinRoom(skin) {
+  if (!isWaterskinKind(skin) || skin.parent?.documentName !== "Actor") return 0;
+  const capacity = skin.system?.capacity ?? {};
+  const count = Number(capacity.count);
+  if (count > 0) return Math.max(0, Math.floor(count - (Number(skin.system.contentsCount) || 0) + 1e-9));
+  const weight = Number(capacity.weight?.value);
+  if (weight > 0) {
+    const used = Number(skin.system.contentsWeight) || 0;
+    return Math.max(0, Math.floor((weight - used) / pintWeight(skin) + 1e-9));
+  }
+  const pints = waterIn(skin).reduce((sum, i) => sum + (Number(i.system?.quantity) || 0), 0);
+  return Math.max(0, 4 - pints);
+}
+function canRefill(item) {
+  if (item?.parent?.documentName !== "Actor") return false;
+  return refillable(item) || waterskinRoom(item) > 0;
+}
+async function pintData(holder) {
+  const own = holder.items.find((i) => isWater(i) && i.type === "consumable" && !(Number(i.system?.uses?.max) > 1));
+  let data = own?.toObject() ?? null;
+  if (!data) {
+    try {
+      data = (await fromUuid(WATER_UUID))?.toObject() ?? null;
+    } catch {
+      data = null;
+    }
+  }
+  data ??= {
+    name: loc("Provisions.Refill.Water"),
+    type: "consumable",
+    img: "icons/magic/water/water-drop-swirl-blue.webp",
+    system: { identifier: "water-pint", type: { value: "food" }, uses: { max: "1", spent: 0, autoDestroy: true }, weight: { value: 1, units: "lb" } }
+  };
+  delete data._id;
+  delete data.folder;
+  foundry.utils.setProperty(data, "system.uses.spent", 0);
+  foundry.utils.setProperty(data, EATEN, 0);
+  foundry.utils.setProperty(data, EMPTIED, false);
+  return data;
+}
+async function refillOne(holder, item) {
+  const room = waterskinRoom(item);
+  if (room > 0) {
+    const water = waterIn(item).find((i) => !(Number(i.system?.uses?.spent) > 0) && !eatenPart(i));
+    if (water) await water.update({ "system.quantity": (Number(water.system.quantity) || 0) + room }, BYPASS());
+    else {
+      const data = await pintData(holder);
+      foundry.utils.setProperty(data, "system.quantity", room);
+      foundry.utils.setProperty(data, "system.container", item.id);
+      await holder.createEmbeddedDocuments("Item", [data], BYPASS());
+    }
+    return { vessels: 1, pints: room };
+  }
+  if (!refillable(item)) return null;
+  const quantity = Math.max(1, Number(item.system.quantity) || 0);
+  const max = Number(item.system.uses.max);
+  const emptied = isEmptied(item);
+  const added = max * quantity - usesLeft(item);
+  const twin = holder.items.find((i) => i !== item && i.name === item.name && i.type === item.type && (i.system?.container ?? null) === (item.system?.container ?? null) && Number(i.system?.uses?.max) === max && !i.system.uses.autoDestroy && !isEmptied(i) && !(Number(i.system.uses.spent) > 0));
+  if (twin) {
+    await twin.update({ "system.quantity": (Number(twin.system.quantity) || 0) + quantity }, BYPASS());
+    await item.delete(BYPASS());
+  } else await item.update({ "system.uses.spent": 0, [EMPTIED]: false, [EATEN]: 0 }, BYPASS());
+  return { vessels: emptied ? quantity : 1, pints: added };
+}
 function groupHolders() {
   const stores = partyStores().filter((s) => storeState(s).present);
   return [...partyMembers().filter((m) => !stores.includes(m)), ...stores];
@@ -3601,36 +3877,39 @@ function refillableCount() {
   for (const holder of groupHolders()) {
     for (const item of holder.items) {
       if (refillable(item)) count += isEmptied(item) ? Math.max(1, Number(item.system.quantity) || 0) : 1;
+      else if (waterskinRoom(item) > 0) count += 1;
     }
   }
   return count;
 }
-async function refillWater(user = game.user) {
+async function refill(holders2, user, only) {
   const result = { vessels: 0, pints: 0 };
   if (!game.user.isGM) return result;
-  for (const holder of groupHolders()) {
+  for (const holder of holders2) {
     const lines = [];
     let pints = 0;
-    for (const item of [...holder.items].filter(refillable)) {
-      const quantity = Math.max(1, Number(item.system.quantity) || 0);
-      const max = Number(item.system.uses.max);
-      const emptied = isEmptied(item);
-      const added = max * quantity - usesLeft(item);
-      const vessels = emptied ? quantity : 1;
-      const twin = holder.items.find((i) => i !== item && i.name === item.name && i.type === item.type && (i.system?.container ?? null) === (item.system?.container ?? null) && Number(i.system?.uses?.max) === max && !i.system.uses.autoDestroy && !isEmptied(i) && !(Number(i.system.uses.spent) > 0));
-      if (twin) {
-        await twin.update({ "system.quantity": (Number(twin.system.quantity) || 0) + quantity }, BYPASS());
-        await item.delete(BYPASS());
-      } else await item.update({ "system.uses.spent": 0, [EMPTIED]: false, [EATEN]: 0 }, BYPASS());
-      pints += added;
-      result.vessels += vessels;
-      lines.push(loc("Provisions.Refill.LogLine", { count: vessels, item: item.name, pints: added }));
+    const items = only ? [only] : [...holder.items].filter((i) => refillable(i) || waterskinRoom(i) > 0);
+    for (const item of items) {
+      const name = item.name;
+      const done = await refillOne(holder, item);
+      if (!done) continue;
+      pints += done.pints;
+      result.vessels += done.vessels;
+      lines.push(loc("Provisions.Refill.LogLine", { count: done.vessels, item: name, pints: done.pints }));
     }
     if (!lines.length) continue;
     result.pints += pints;
     logChange("refill", { actor: holder.name, data: { water: pints }, items: lines }, user);
   }
   return result;
+}
+function refillWater(user = game.user) {
+  return refill(groupHolders(), user);
+}
+function refillVessel(item, user = game.user) {
+  const holder = item?.parent;
+  if (holder?.documentName !== "Actor") return Promise.resolve({ vessels: 0, pints: 0 });
+  return refill([holder], user, item);
 }
 function dailyNeed(actor) {
   return { food: Number(getSetting("provisionsFoodPerDay")) || 0, water: Number(getSetting("provisionsWaterPerDay")) || 0 };
@@ -3640,7 +3919,6 @@ function sated(actor) {
   return { food: Number(own.food) || 0, water: Number(own.water) || 0 };
 }
 function supplyOf(actor) {
-  const need = dailyNeed(actor);
   const total = { food: 0, water: 0 };
   for (const item of actor?.items ?? []) {
     const uses = usesLeft(item);
@@ -4253,7 +4531,7 @@ async function startRestSession(start) {
   });
   await save(session);
 }
-var cleanRows = (rows, kind) => (Array.isArray(rows) ? rows : []).slice(0, 30).map((r) => ({ kind, src: String(r?.src ?? ""), units: Math.max(0, Math.min(100, Number(r?.units) || 0)) })).filter((r) => r.src);
+var cleanRows = (rows, kind) => (Array.isArray(rows) ? rows : []).slice(0, 30).map((r) => ({ kind, src: String(r?.src ?? ""), units: Math.max(0, Math.min(100, Number(r?.units) || 0)) }));
 async function handle(data, user) {
   const session = restSession();
   if (!session || session.id !== data?.sessionId) throw new Error("No such rest");
@@ -4855,7 +5133,7 @@ function getRestMealAppClass() {
       const session = restSession();
       if (!session) return root;
       root.style.setProperty("--pl-meal-cols", String(mealColumns(session)));
-      const running = session.state !== "planning";
+      const running2 = session.state !== "planning";
       const result = evaluate(session);
       const sources = { food: mealSources(session, "food"), water: mealSources(session, "water") };
       const votes = session.voters.map((id) => {
@@ -4873,7 +5151,7 @@ function getRestMealAppClass() {
           const had = Math.min(meals.need[kind], meals.had[kind]);
           const ok = had + 1e-9 >= meals.need[kind];
           const half2 = !ok && had + 1e-9 >= meals.need[kind] / 2;
-          const lines = rows.map((row, index) => ({ row, index, res: meals.rows[index] })).filter(({ row }) => row.kind === kind).map(({ row, index, res }) => this.#row(row, index, res, sources[kind], result.left, running)).join("");
+          const lines = rows.map((row, index) => ({ row, index, res: meals.rows[index] })).filter(({ row }) => row.kind === kind).map(({ row, index, res }) => this.#row(row, index, res, sources[kind], result.left, running2)).join("");
           const before = meals.before[kind] > 0 ? `<p class="pl-meal-before">${esc(loc("Provisions.Session.Before", { amount: number(meals.before[kind]) }))}</p>` : "";
           return `<div class="pl-meal-kind ${kind}" data-kind="${kind}">
             <div class="pl-meal-head">
@@ -4884,7 +5162,7 @@ function getRestMealAppClass() {
             </div>
             ${before}
             <ul class="pl-meal-rows">${lines}</ul>
-            ${running ? "" : `<button type="button" class="pl-meal-add" data-action="addRow" data-actor-id="${id}" data-kind="${kind}">
+            ${running2 ? "" : `<button type="button" class="pl-meal-add" data-action="addRow" data-actor-id="${id}" data-kind="${kind}">
               <i class="fa-solid fa-plus" inert></i> ${esc(loc("Provisions.Session.AddSource"))}</button>`}
           </div>`;
         }).join("");
@@ -4895,7 +5173,7 @@ function getRestMealAppClass() {
       }).join("");
       const voter = session.voters.includes(game.user.id);
       const myVote = session.votes[game.user.id];
-      const footer = running ? `<footer class="pl-provisions-footer pl-meal-footer">
+      const footer = running2 ? `<footer class="pl-provisions-footer pl-meal-footer">
             <p class="pl-meal-running"><i class="fa-solid fa-spinner fa-spin" inert></i> ${esc(loc("Provisions.Session.Running"))}</p>
             ${game.user.isGM ? `<button type="button" data-action="cancel" data-tooltip="${esc(loc("Provisions.Session.CancelStuck"))}">
               <i class="fa-solid fa-ban" inert></i> ${esc(loc("Provisions.Session.Cancel"))}</button>` : ""}
@@ -4924,7 +5202,7 @@ function getRestMealAppClass() {
       return root;
     }
     /** One line: the source chosen (with what is left of it) and the amount. */
-    #row(row, index, res, sources, left, running) {
+    #row(row, index, res, sources, left, running2) {
       const option = (src) => {
         let label2;
         if (src.type === "external") label2 = loc("Provisions.Rest.External");
@@ -4936,16 +5214,18 @@ function getRestMealAppClass() {
         return `<option value="${esc(src.id)}"${src.id === row.src ? " selected" : ""}>${esc(label2)}</option>`;
       };
       let options = sources.map(option).join("");
-      if (!sources.some((s) => s.id === row.src)) {
+      if (!row.src) {
+        options = `<option value="" selected disabled>${esc(loc("Provisions.Session.ChooseSource"))}</option>${options}`;
+      } else if (!sources.some((s) => s.id === row.src)) {
         const src = parseSource(row.src);
         options = `<option value="${esc(row.src)}" selected>${esc(src ? `${src.item.name} (${src.holder.name})` : loc("Provisions.Session.Gone"))}</option>${options}`;
       }
-      const short = res?.short ? ` short" data-tooltip="${esc(loc("Provisions.Session.RowShort", { amount: number(res.granted) }))}` : "";
+      const short = res?.short && row.src ? ` short" data-tooltip="${esc(loc("Provisions.Session.RowShort", { amount: number(res.granted) }))}` : "";
       const step = row.kind === "food" ? 0.5 : 1;
       return `<li class="pl-meal-row${short}" data-index="${index}">
-        <select data-field="src"${running ? " disabled" : ""}>${options}</select>
-        <input type="number" data-field="units" min="0" step="${step}" value="${row.units}"${running ? " disabled" : ""}>
-        ${running ? "" : `<button type="button" class="icon" data-action="removeRow" data-index="${index}"
+        <select data-field="src"${running2 ? " disabled" : ""}>${options}</select>
+        <input type="number" data-field="units" min="0" step="${step}" value="${row.units}"${running2 ? " disabled" : ""}>
+        ${running2 ? "" : `<button type="button" class="icon" data-action="removeRow" data-index="${index}"
           data-tooltip="${esc(loc("Provisions.Session.Remove"))}"><i class="fa-solid fa-trash" inert></i></button>`}
       </li>`;
     }
@@ -4997,9 +5277,9 @@ function getRestMealAppClass() {
       const rows = this.#readBlock(block);
       const missing = meals ? Math.max(0, meals.need[kind] - meals.had[kind]) : 0;
       const used = new Set(rows.map((r) => r.src));
-      const src = mealSources(session, kind).find((s) => !used.has(s.id) && (s.type === "external" || (result.left[s.id] ?? 0) > 0));
-      if (!src) return void ui.notifications.warn(loc("Provisions.Session.NoSource"));
-      rows.push({ src: src.id, units: missing || (kind === "food" ? 1 : 4) });
+      const any = mealSources(session, kind).some((s) => !used.has(s.id) && (s.type === "external" || (result.left[s.id] ?? 0) > 0));
+      if (!any) return void ui.notifications.warn(loc("Provisions.Session.NoSource"));
+      rows.push({ src: "", units: missing || (kind === "food" ? 1 : 4) });
       return this.#sendBlock(actorId, kind, block, rows);
     }
     static #onRemoveRow(event, target) {
@@ -5073,6 +5353,829 @@ for (const event of ["createItem", "updateItem", "deleteItem", "updateActor"]) {
   });
 }
 
+// src/core/policy/fund-rules.ts
+var ACCOUNTS_SETTING = "fundAccounts";
+var HOLDINGS_FLAG = "fundAccounts";
+var MAIN_ACCOUNT = "main";
+var flags = (actor) => actor?.flags?.[MODULE_ID] ?? {};
+function fundAccounts() {
+  const stored = getSetting(ACCOUNTS_SETTING);
+  const list = (Array.isArray(stored) ? stored : []).filter((a) => a && typeof a.id === "string" && a.id).map((a) => ({ id: a.id, name: String(a.name ?? "") }));
+  if (!list.some((a) => a.id === MAIN_ACCOUNT)) list.unshift({ id: MAIN_ACCOUNT, name: "" });
+  return list;
+}
+var accountOf = (id) => fundAccounts().find((a) => a.id === id) ?? null;
+var accountName = (account) => !account ? "?" : account.name || game.i18n.localize("PACK_LEDGER.Fund.MainAccount");
+var fundActive = () => ["button", "always"].includes(getSetting("partyFund"));
+function holdingsOf(actor, purse = coinsOf(actor)) {
+  const noted = flags(actor)[HOLDINGS_FLAG];
+  if (!noted || typeof noted !== "object") return {};
+  const accounts = fundAccounts();
+  const order = [...accounts.filter((a) => a.id !== MAIN_ACCOUNT), ...accounts.filter((a) => a.id === MAIN_ACCOUNT)].filter((a) => noted[a.id]).map((a) => ({ id: a.id, want: coinsOf(noted[a.id]), got: emptyCoins() }));
+  const left = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d])]));
+  for (const entry of order) {
+    for (const d of DENOMINATIONS) {
+      const n = Math.max(0, Math.min(entry.want[d], left[d]));
+      entry.got[d] += n;
+      left[d] -= n;
+    }
+  }
+  for (const entry of order) {
+    let short = toCopper(entry.want) - toCopper(entry.got);
+    for (const d of DENOMINATIONS) {
+      if (short <= 0) break;
+      const n = Math.min(left[d], Math.floor(short / COPPER[d]));
+      entry.got[d] += n;
+      left[d] -= n;
+      short -= n * COPPER[d];
+    }
+  }
+  const result = {};
+  for (const entry of order) if (!isZero(entry.got)) result[entry.id] = entry.got;
+  return result;
+}
+var holdingOf = (actor, id) => holdingsOf(actor)[id] ?? emptyCoins();
+var fundOf = (actor) => Object.values(holdingsOf(actor)).reduce((total, coins) => add(total, coins), emptyCoins());
+function inCoins(copper) {
+  const coins = emptyCoins();
+  coins.gp = Math.floor(copper / COPPER.gp);
+  coins.sp = Math.floor(copper % COPPER.gp / COPPER.sp);
+  coins.cp = copper % COPPER.sp;
+  return coins;
+}
+function fundSpent(actor, after) {
+  if (!fundActive()) return [];
+  const now = holdingsOf(actor);
+  const then = holdingsOf(actor, after);
+  return fundAccounts().filter((a) => now[a.id]).map((account) => ({
+    account,
+    coins: inCoins(Math.max(0, toCopper(now[account.id]) - toCopper(then[account.id] ?? emptyCoins())))
+  })).filter((s) => !isZero(s.coins));
+}
+
+// src/ui/fund-warning.ts
+function fundSpendHtml(actor, after) {
+  const spent = fundSpent(actor, after);
+  if (!spent.length) return "";
+  return `<div class="pack-ledger-fund-warning">
+    <p><i class="fa-solid fa-triangle-exclamation" inert></i> ${esc(loc("Fund.SpendWarning", { actor: actor.name }))}</p>
+    <ul>${spent.map((s) => `<li><strong>${esc(accountName(s.account))}</strong>: ${coinsHtml(s.coins)}</li>`).join("")}</ul>
+    <p class="hint">${esc(loc("Fund.SpendHint"))}</p>
+  </div>`;
+}
+async function confirmFundSpend(actor, after) {
+  const content = fundSpendHtml(actor, after);
+  if (!content) return true;
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Fund.SpendTitle"), icon: "fa-solid fa-triangle-exclamation" },
+    content,
+    yes: { label: loc("Fund.SpendAnyway"), icon: "fa-solid fa-coins" },
+    no: { label: loc("Fund.SpendCancel"), icon: "fa-solid fa-xmark", default: true },
+    rejectClose: false
+  });
+  return !!yes;
+}
+var confirmFundGive = (actor, coins) => confirmFundSpend(
+  actor,
+  add(coinsOf(actor), Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, Number(coins?.[d]) || 0)])), -1)
+);
+
+// src/feature/piles/pile-items.ts
+var itemLabel = (name, quantity) => quantity > 1 ? `${name} \xD7${quantity}` : name;
+function isPhysicalData(item) {
+  return PHYSICAL_TYPES.has(item?.type);
+}
+function stackQuantity(item) {
+  if (item?.type === "container") return 1;
+  return Math.max(1, Math.floor(Number(item?.system?.quantity ?? 1)) || 1);
+}
+function topLevel(actor) {
+  return actor.items.filter((i) => isPhysicalData(i) && !actor.items.has(i.system?.container));
+}
+function descendants(actor, item) {
+  if (item.type !== "container") return [];
+  const result = [];
+  const queue7 = [item.id];
+  const seen = new Set(queue7);
+  while (queue7.length) {
+    const id = queue7.shift();
+    for (const child of actor.items) {
+      if (child.system?.container !== id || seen.has(child.id)) continue;
+      seen.add(child.id);
+      result.push(child);
+      queue7.push(child.id);
+    }
+  }
+  return result;
+}
+function remapIds(items) {
+  const map = new Map(items.map((i) => [i._id, foundry.utils.randomID()]));
+  for (const item of items) {
+    item._id = map.get(item._id);
+    if (item.system) item.system.container = map.get(item.system.container) ?? null;
+  }
+  return items;
+}
+function unequip(data) {
+  if (data.system && "equipped" in data.system) data.system.equipped = false;
+  if (data.system && "attuned" in data.system) data.system.attuned = false;
+  return data;
+}
+function transferData(item, nested, quantity) {
+  const top = unequip(item.toObject());
+  if (item.type !== "container" && top.system) top.system.quantity = quantity;
+  return [top, ...nested.map((i) => i.toObject())];
+}
+var MASKED = {
+  potion: { name: "Pile.Masked.Potion", description: "Pile.Masked.PotionDescription" },
+  scroll: { name: "Pile.Masked.Scroll", description: "Pile.Masked.ScrollDescription" }
+};
+function maskConsumable(data) {
+  const kind = data?.type === "consumable" ? MASKED[data.system?.type?.value] : null;
+  if (!kind) return data;
+  const unidentified = data.system.unidentified ?? {};
+  data.system.identified = false;
+  data.system.unidentified = {
+    ...unidentified,
+    name: unidentified.name || loc(kind.name),
+    description: unidentified.description || `<p>${loc(kind.description)}</p>`
+  };
+  return data;
+}
+function sameStack(item, data) {
+  if (!item || !data || item.type !== data.type || item.type === "container") return false;
+  return (item._source?.name ?? item.name) === data.name && item.img === data.img && (item._source.system?.weight?.value ?? 0) === (data.system?.weight?.value ?? 0) && (item._source.system?.identified ?? true) === (data.system?.identified ?? true);
+}
+async function mergeIntoStack(actor, data, options = {}) {
+  if (!data || data.type === "container") return null;
+  const matches = actor.items.filter((i) => sameStack(i, data)).sort((a, b) => Number(!!a.system?.container) - Number(!!b.system?.container));
+  const add2 = stackQuantity(data);
+  for (const item of matches) {
+    const previous = stackQuantity(item);
+    const updated = await item.update({ "system.quantity": previous + add2 }, { ...options });
+    if (updated && stackQuantity(item) === previous + add2) return { item, previous };
+  }
+  return null;
+}
+
+// src/feature/piles/pile-tokens.ts
+var PILE_ICON = "icons/containers/bags/pack-leather-brown.webp";
+var CHEST_ICON = "icons/containers/chest/chest-reinforced-steel-brown.webp";
+var COIN_ICON = "icons/commodities/currency/coins-assorted-mix-copper-silver-gold.webp";
+var PILE_SIZE = 0.5;
+var pileActorPromise = null;
+var SIZE_LOCK = { lockSize: true, lockScale: true };
+var hasSizeLock = (flags2) => flags2?.dnd5e?.lockSize === true && flags2?.dnd5e?.lockScale === true;
+async function getPileActor() {
+  const stored = game.actors.get(getSetting("pileActorId"));
+  if (isPile(stored)) {
+    if (!hasSizeLock(stored.prototypeToken.flags)) {
+      await stored.update({ "prototypeToken.flags.dnd5e": SIZE_LOCK, "prototypeToken.width": PILE_SIZE, "prototypeToken.height": PILE_SIZE });
+    }
+    return stored;
+  }
+  pileActorPromise ??= (async () => {
+    let actor = game.actors.find((a) => isPile(a));
+    actor ??= await Actor.implementation.create({
+      name: loc("Pile.ActorName"),
+      type: "npc",
+      img: PILE_ICON,
+      ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER },
+      flags: { [MODULE_ID]: { pile: true } },
+      prototypeToken: {
+        name: loc("Pile.ActorName"),
+        actorLink: false,
+        width: PILE_SIZE,
+        height: PILE_SIZE,
+        texture: { src: PILE_ICON },
+        disposition: CONST.TOKEN_DISPOSITIONS.NEUTRAL,
+        displayName: CONST.TOKEN_DISPLAY_MODES.HOVER,
+        displayBars: CONST.TOKEN_DISPLAY_MODES.NONE,
+        lockRotation: true,
+        sight: { enabled: false },
+        ring: { enabled: false },
+        flags: { [MODULE_ID]: { pile: true }, dnd5e: SIZE_LOCK }
+      }
+    });
+    await game.settings.set(MODULE_ID, "pileActorId", actor.id);
+    return actor;
+  })().finally(() => {
+    pileActorPromise = null;
+  });
+  return pileActorPromise;
+}
+function appearance(entries, { coins, lock } = {}) {
+  if (lock) return { name: loc(lock.locked ? "Pile.ChestLocked" : "Pile.Chest"), img: CHEST_ICON };
+  const withCoins = hasCoins(coins);
+  if (!entries.length) {
+    return withCoins ? { name: loc("Pile.CoinsName"), img: COIN_ICON } : { name: loc("Pile.Empty"), img: PILE_ICON };
+  }
+  if (entries.length === 1 && !withCoins) return { name: entries[0].name, img: entries[0].img || PILE_ICON };
+  return { name: loc("Pile.Name"), img: PILE_ICON };
+}
+var entryOf = (item) => ({ name: item.name, img: item.img, quantity: stackQuantity(item) });
+async function createPile(scene, { x, y, elevation = 0, level, rotation = 0 }, itemsData, flags2 = {}, { currency } = {}) {
+  const base = await getPileActor();
+  const items = remapIds(foundry.utils.deepClone(itemsData));
+  const coins = coinsOf2(currency);
+  const look = appearance(items.filter((i) => !i.system?.container).map(entryOf), { coins });
+  const half2 = PILE_SIZE * scene.grid.size / 2;
+  const tokenDocument = await base.getTokenDocument({
+    name: look.name,
+    texture: { src: look.img },
+    x: Math.round(x - half2),
+    y: Math.round(y - half2),
+    elevation,
+    rotation,
+    ...typeof level === "string" && level ? { level } : {},
+    width: PILE_SIZE,
+    height: PILE_SIZE,
+    flags: { [MODULE_ID]: { pile: true, ...flags2 }, dnd5e: SIZE_LOCK }
+  });
+  const [token] = await scene.createEmbeddedDocuments("Token", [tokenDocument.toObject()]);
+  if (!token) return null;
+  try {
+    if (items.length) await token.actor.createEmbeddedDocuments("Item", items, { keepId: true, ...BYPASS() });
+    if (hasCoins(coins)) await token.actor.update({ "system.currency": coins }, BYPASS());
+  } catch (err) {
+    await token.delete();
+    throw err;
+  }
+  return token;
+}
+async function addToPile(token, itemsData) {
+  const pile = token.actor;
+  const [top, ...nested] = itemsData;
+  if (!nested.length && top.type !== "container") {
+    const match = topLevel(pile).find((i) => sameStack(i, top));
+    if (match) {
+      return match.update({ "system.quantity": stackQuantity(match) + stackQuantity(top) }, BYPASS());
+    }
+  }
+  await pile.createEmbeddedDocuments("Item", remapIds(foundry.utils.deepClone(itemsData)), { keepId: true, ...BYPASS() });
+}
+async function afterPileChange(token) {
+  if (!isPileToken(token) || !token.parent?.tokens.has(token.id)) return;
+  const empty = !topLevel(token.actor).length && !hasCoins(coinsOf2(token.actor));
+  if (empty && !pileLock(token) && getSetting("pileDeleteEmpty")) return token.delete();
+  return refreshPileLook(token);
+}
+function automaticLook(token) {
+  return appearance(topLevel(token.actor).map(entryOf), { coins: coinsOf2(token.actor), lock: pileLock(token) });
+}
+async function refreshPileLook(token) {
+  if (!isPileToken(token) || !token.parent?.tokens.has(token.id)) return;
+  const look = automaticLook(token);
+  look.name = pileCustomName(token) || look.name;
+  if (look.name !== token.name || look.img !== token.texture.src) {
+    await token.update({ name: look.name, "texture.src": look.img });
+  }
+}
+async function refreshAllPileLooks() {
+  if (game.users.activeGM !== game.user) return;
+  for (const scene of game.scenes) {
+    for (const token of scene.tokens) {
+      if (!isPileToken(token)) continue;
+      try {
+        await refreshPileLook(token);
+      } catch (err) {
+        logWarn(`Could not refresh pile ${token.uuid}`, err);
+      }
+    }
+  }
+}
+async function changeCoins(actor, amounts2, sign) {
+  const current = coinsOf2(actor);
+  const update = {};
+  for (const d of COINS) {
+    if (amounts2[d]) update[`system.currency.${d}`] = Math.max(0, current[d] + sign * amounts2[d]);
+  }
+  if (Object.keys(update).length) await actor.update(update, BYPASS());
+}
+function blockedFor(user, token) {
+  if (user.isGM) return null;
+  if (token.hidden) return "Notify.AlreadyPicked";
+  if (isLocked(token)) return "Notify.PileLocked";
+  return null;
+}
+
+// src/feature/currency/audit.ts
+var BATCH_DELAY = 2e3;
+var auditActive = () => !!getSetting("currencyAudit");
+function logModuleCoins(source, actor, user, before, note) {
+  if (!auditActive()) return;
+  const after = coinsOf(actor);
+  const delta = difference(before, after);
+  if (isZero(delta)) return;
+  addCoinEntry({ user: user?.name ?? "", actor: actor.name, actorId: actor.id, source, delta, before, after, note });
+}
+var known = /* @__PURE__ */ new Map();
+function remember2(actor) {
+  if (actor?.system?.currency && !actor.isToken) known.set(actor.id, coinsOf(actor));
+}
+var recent = /* @__PURE__ */ new Map();
+function countChange(userId, actorId) {
+  const limit = Number(getSetting("currencySuspiciousCount")) || 0;
+  if (limit < 2) return 0;
+  const window2 = Math.max(0, Number(getSetting("currencySuspiciousSeconds")) || 0) * 1e3;
+  const now = Date.now();
+  const key = `${userId}.${actorId}`;
+  const times = (recent.get(key) ?? []).filter((t) => now - t <= window2);
+  times.push(now);
+  recent.set(key, times);
+  return times.length >= limit ? times.length : 0;
+}
+var batches = /* @__PURE__ */ new Map();
+function queueReason(user, actor, delta, id) {
+  const key = `${user.id}.${actor.id}`;
+  const batch = batches.get(key) ?? { user, actor, delta: emptyCoins(), ids: [], timer: null };
+  batch.ids.push(id);
+  batch.delta = add(batch.delta, delta);
+  clearTimeout(batch.timer);
+  batch.timer = setTimeout(() => {
+    batches.delete(key);
+    if (!isZero(batch.delta)) askReason(batch).catch((err) => logError("Could not ask for the reason of a coin change", err));
+  }, BATCH_DELAY);
+  batches.set(key, batch);
+}
+async function askReason({ user, actor, delta, ids }) {
+  const reason = await foundry.applications.api.DialogV2.prompt({
+    window: { title: loc("Coins.Reason.Title", { actor: actor.name }), icon: "fa-solid fa-coins" },
+    content: `<p>${esc(loc("Coins.Reason.Hint", { user: user.name, actor: actor.name, change: coinsText(delta, { signed: true }) }))}</p>
+      <textarea name="reason" rows="3" placeholder="${esc(loc("Coins.Reason.Placeholder"))}"></textarea>`,
+    ok: {
+      label: loc("Coins.Reason.Save"),
+      icon: "fa-solid fa-floppy-disk",
+      callback: (event, button2) => String(button2.form.elements.reason.value ?? "").trim()
+    },
+    rejectClose: false
+  });
+  if (!reason) return;
+  for (const id of ids) setCoinReason(id, reason.slice(0, 1e3));
+}
+function onUpdateActor(actor, changes, options, userId) {
+  if (!foundry.utils.hasProperty(changes, "system.currency")) return;
+  const before = known.get(actor.id);
+  remember2(actor);
+  if (game.user !== game.users.activeGM || !before || !auditActive() || !isPlayerActor(actor)) return;
+  const meta = options?.[MODULE_ID];
+  const fundNote = typeof meta?.fundConfirmed === "string" ? meta.fundConfirmed : "";
+  if (meta && !meta.fundConfirmed && meta.currency?.source !== "input") return;
+  const after = coinsOf(actor);
+  const delta = difference(before, after);
+  const user = game.users.get(userId);
+  if (isZero(delta) || !user) return;
+  if (user.isGM && !getSetting("currencyAuditGM")) return;
+  const flagged = user.isGM ? 0 : countChange(user.id, actor.id);
+  const id = addCoinEntry({
+    user: user.name,
+    actor: actor.name,
+    actorId: actor.id,
+    source: user.isGM ? "gm" : "player",
+    delta,
+    before,
+    after,
+    converted: !!meta?.currency?.converted,
+    note: fundNote ? loc("Fund.LogSpent", { spent: fundNote }) : "",
+    flagged: flagged ? loc("Coins.Log.Suspicious", { count: flagged, seconds: getSetting("currencySuspiciousSeconds") }) : ""
+  });
+  if (!user.isGM && getSetting("currencyAskReason")) queueReason(user, actor, delta, id);
+}
+Hooks.once("ready", () => {
+  for (const actor of game.actors) remember2(actor);
+  Hooks.on("createActor", remember2);
+  Hooks.on("deleteActor", (actor) => known.delete(actor.id));
+  Hooks.on("updateActor", onUpdateActor);
+});
+
+// src/feature/currency/party-fund.ts
+var fundMode = () => {
+  const mode = getSetting("partyFund");
+  return mode === "button" || mode === "always" ? mode : "off";
+};
+var depositors = () => partyMembers().filter((a) => a.isOwner);
+var canWithdraw = (actor, id) => !!actor?.isOwner && !isZero(holdingOf(actor, id));
+var holdingKey = (id) => `flags.${MODULE_ID}.${HOLDINGS_FLAG}.${id}`;
+function freeCoins(actor) {
+  const purse = coinsOf(actor), fund = fundOf(actor);
+  return Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d] - fund[d])]));
+}
+async function addToFund(actor, coins) {
+  await actor.update({ [holdingKey(MAIN_ACCOUNT)]: add(holdingOf(actor, MAIN_ACCOUNT), coins) });
+}
+function takesIntoFund(actor, asked2) {
+  const mode = fundMode();
+  if (mode === "off") return false;
+  return (asked2 || mode === "always") && partyMembers().includes(actor);
+}
+var saveAccounts = (list) => game.settings.set(MODULE_ID, ACCOUNTS_SETTING, list);
+var isEmptyAccount = (id) => game.actors.every((a) => isZero(holdingOf(a, id)));
+function requestAccount(op, data = {}) {
+  if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
+  requestGM({ type: "fundAccount", op, ...data, userId: game.user.id });
+}
+async function executeAccount(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const member = user.isGM || partyMembers().some((a) => a.testUserPermission(user, "OWNER"));
+  if (!member) return;
+  const list = fundAccounts();
+  const account = list.find((a) => a.id === data.id) ?? null;
+  switch (data.op) {
+    case "create": {
+      const name = String(data.name ?? "").trim().slice(0, 40);
+      if (!name) return;
+      if (list.some((a) => accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+      }
+      await saveAccounts([...list, { id: foundry.utils.randomID(), name }]);
+      return notifyUser(user.id, "info", loc("Fund.AccountCreated", { account: name }));
+    }
+    case "rename": {
+      const name = String(data.name ?? "").trim().slice(0, 40);
+      if (!account || !name) return;
+      if (list.some((a) => a !== account && accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+      }
+      const old = accountName(account);
+      account.name = name;
+      await saveAccounts(list);
+      return notifyUser(user.id, "info", loc("Fund.AccountRenamed", { old, account: name }));
+    }
+    case "delete": {
+      if (!account || account.id === MAIN_ACCOUNT) return;
+      if (!user.isGM && !isEmptyAccount(account.id)) return notifyUser(user.id, "warn", loc("Fund.NotEmpty", { account: accountName(account) }));
+      for (const actor of game.actors) {
+        if (actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG]?.[account.id]) await actor.update({ [holdingKey(account.id)]: emptyCoins() });
+      }
+      await saveAccounts(list.filter((a) => a !== account));
+      return notifyUser(user.id, "info", loc("Fund.AccountDeleted", { account: accountName(account) }));
+    }
+  }
+}
+async function openAccountDialog(accountId) {
+  const account = accountId ? accountOf(accountId) : null;
+  if (accountId && !account) return;
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title: loc(account ? "Fund.RenameAccount" : "Fund.NewAccount"), icon: `fa-solid ${account ? "fa-pen" : "fa-sack-dollar"}` },
+    content: `<div class="form-group">
+        <label>${esc(loc("Fund.AccountName"))}</label>
+        <div class="form-fields"><input type="text" name="name" maxlength="40" required autofocus
+          value="${esc(account ? accountName(account) : "")}" placeholder="${esc(loc("Fund.AccountPlaceholder"))}"></div>
+      </div>
+      ${account ? "" : `<p class="hint">${esc(loc("Fund.AccountHint"))}</p>`}`,
+    ok: {
+      label: loc(account ? "Fund.RenameAccount" : "Fund.Create"),
+      icon: `fa-solid ${account ? "fa-check" : "fa-plus"}`,
+      callback: (event, button2) => ({ name: String(button2.form.elements.name?.value ?? "").trim() })
+    },
+    rejectClose: false
+  });
+  if (!result?.name) return;
+  if (account) {
+    if (result.name !== accountName(account)) requestAccount("rename", { id: account.id, name: result.name });
+  } else requestAccount("create", result);
+}
+function coinInputs(most, emptyText) {
+  const available = DENOMINATIONS.filter((d) => most[d] > 0);
+  if (!available.length) return `<p class="hint">${esc(emptyText)}</p>`;
+  return available.map((d) => `<div class="form-group">
+      <label>${denominationHtml(d)} ${esc(game.i18n.localize(CONFIG.DND5E?.currencies?.[d]?.label ?? d))}</label>
+      <div class="form-fields">
+        <input type="number" name="${d}" min="0" max="${most[d]}" step="1" value="0">
+        <span class="hint">${esc(loc("Fund.Available", { count: most[d] }))}</span>
+      </div>
+    </div>`).join("");
+}
+var select = (name, label2, options) => `<div class="form-group"><label>${esc(label2)}</label><div class="form-fields"><select name="${name}">${options.map((o) => `<option value="${esc(o.value)}"${o.selected ? " selected" : ""}>${esc(o.text)}</option>`).join("")}</select></div></div>`;
+function readForm(form) {
+  const values = { actorId: form.elements.actorId?.value, accountId: form.elements.accountId?.value };
+  for (const d of DENOMINATIONS) values[d] = Math.max(0, Math.floor(Number(form.elements[d]?.value) || 0));
+  return values;
+}
+var accountOption = (a, selected) => ({ value: a.id, text: accountName(a), selected });
+async function openDepositDialog(actor, accountId) {
+  if (fundMode() === "off") return;
+  const own = depositors();
+  actor ??= own.find((a) => a === game.user.character) ?? own[0];
+  if (!actor || !own.includes(actor)) return ui.notifications.warn(loc("Fund.NoDepositor"));
+  const accounts = fundAccounts();
+  const chosenAccount = accounts.find((a) => a.id === accountId) ?? accounts[0];
+  const rows = (a) => coinInputs(freeCoins(a), loc("Fund.NothingFree", { actor: a.name }));
+  const content = `${own.length > 1 ? select(
+    "actorId",
+    loc("Fund.Depositor"),
+    own.map((a) => ({ value: a.id, text: a.name, selected: a === actor }))
+  ) : ""}
+    ${select("accountId", loc("Fund.Account"), accounts.map((a) => accountOption(a, a === chosenAccount)))}
+    <div class="pl-deposit-coins">${rows(actor)}</div>
+    <p class="hint">${esc(loc("Fund.DepositHint"))}</p>`;
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title: loc("Fund.DepositTitle"), icon: "fa-solid fa-piggy-bank" },
+    content,
+    render: (event, dialog) => {
+      const el = dialog.element;
+      el.querySelector("select[name=actorId]")?.addEventListener("change", (e) => {
+        const chosen2 = game.actors.get(e.target.value);
+        const box = el.querySelector(".pl-deposit-coins");
+        if (chosen2 && box) box.innerHTML = rows(chosen2);
+      });
+    },
+    ok: { label: loc("Fund.Deposit"), icon: "fa-solid fa-piggy-bank", callback: (event, button2) => readForm(button2.form) },
+    rejectClose: false
+  });
+  if (!result) return;
+  const chosen = result.actorId ? game.actors.get(result.actorId) : actor;
+  if (!chosen || !own.includes(chosen)) return;
+  await deposit(chosen, result.accountId ?? chosenAccount.id, coinsOf(result));
+}
+async function deposit(actor, accountId, coins) {
+  const account = accountOf(accountId);
+  if (!account || !actor?.isOwner) return;
+  const free = freeCoins(actor);
+  const amounts2 = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.min(Math.max(0, coins[d]), free[d])]));
+  if (isZero(amounts2)) return ui.notifications.warn(loc("Fund.NothingDeposited"));
+  await actor.update({ [holdingKey(account.id)]: add(holdingOf(actor, account.id), amounts2) });
+  logFundMove("fundDeposit", actor, account, amounts2);
+  ui.notifications.info(loc("Fund.Deposited", { actor: actor.name, coins: coinsLabel(amounts2), account: accountName(account) }));
+}
+function logFundMove(source, actor, account, coins) {
+  requestGM({ type: "fundLog", source, actorId: actor.id, accountId: account.id, coins, userId: game.user.id });
+}
+function executeFundLog(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const actor = game.actors.get(String(data.actorId ?? ""));
+  const account = accountOf(String(data.accountId ?? ""));
+  if (!user || !actor || !account || !actor.testUserPermission(user, "OWNER")) return;
+  if (!auditActive() || !["fundDeposit", "fundWithdraw"].includes(data.source)) return;
+  const coins = coinsOf(data.coins);
+  if (isZero(coins)) return;
+  addCoinEntry({
+    user: user.name,
+    actor: actor.name,
+    actorId: actor.id,
+    source: data.source,
+    delta: emptyCoins(),
+    before: coinsOf(actor),
+    after: coinsOf(actor),
+    note: `${accountName(account)}: ${coinsText(coins)}`
+  });
+}
+async function openWithdrawDialog(actor, accountId) {
+  const allowed = fundAccounts().filter((a) => canWithdraw(actor, a.id));
+  if (!allowed.length) return ui.notifications.warn(loc("Fund.NothingToWithdraw", { actor: actor?.name ?? "" }));
+  const chosen = allowed.find((a) => a.id === accountId) ?? allowed[0];
+  const rows = (id) => coinInputs(holdingOf(actor, id), loc("Fund.NothingToWithdraw", { actor: actor.name }));
+  const content = `${select("accountId", loc("Fund.Account"), allowed.map((a) => accountOption(a, a === chosen)))}
+    <div class="pl-deposit-coins">${rows(chosen.id)}</div>
+    <p class="hint">${esc(loc("Fund.WithdrawHint", { actor: actor.name }))}</p>`;
+  const result = await foundry.applications.api.DialogV2.prompt({
+    window: { title: loc("Fund.WithdrawTitle", { actor: actor.name }), icon: "fa-solid fa-hand-holding-dollar" },
+    content,
+    render: (event, dialog) => {
+      dialog.element.querySelector("select[name=accountId]")?.addEventListener("change", (e) => {
+        const box = dialog.element.querySelector(".pl-deposit-coins");
+        if (box) box.innerHTML = rows(e.target.value);
+      });
+    },
+    ok: { label: loc("Fund.Withdraw"), icon: "fa-solid fa-hand-holding-dollar", callback: (event, button2) => readForm(button2.form) },
+    rejectClose: false
+  });
+  if (result) await withdraw(actor, result.accountId ?? chosen.id, coinsOf(result));
+}
+async function withdraw(actor, accountId, coins) {
+  const account = accountOf(accountId);
+  if (!account || !canWithdraw(actor, account.id)) return;
+  const holding = holdingOf(actor, account.id);
+  const amounts2 = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.min(Math.max(0, coins[d]), holding[d])]));
+  if (isZero(amounts2)) return ui.notifications.warn(loc("Fund.NothingDeposited"));
+  await actor.update({ [holdingKey(account.id)]: add(holding, amounts2, -1) });
+  logFundMove("fundWithdraw", actor, account, amounts2);
+  ui.notifications.info(loc("Fund.Withdrawn", { actor: actor.name, coins: coinsLabel(amounts2), account: accountName(account) }));
+}
+async function announceShare(member, coins, { by, from, account = "", skip }) {
+  const whisper = game.users.filter((u) => !u.isGM && u.id !== skip && member.testUserPermission(u, "OWNER")).map((u) => u.id);
+  if (!whisper.length || isZero(coins)) return;
+  const text3 = account ? loc("Coins.Share.ChatAccount", { by: by.name, account }) : from ? loc("Coins.Share.ChatPile", { by: by.name, from }) : loc("Coins.Share.ChatFund", { by: by.name });
+  const content = `<div class="pack-ledger-share">
+    <p>${esc(text3)}</p>
+    <p class="share">${locCoins("Coins.Share.ChatGets", { actor: member.name }, coins)}</p>
+  </div>`;
+  try {
+    await ChatMessage.implementation.create({
+      speaker: by?.documentName === "Actor" ? ChatMessage.implementation.getSpeaker({ actor: by }) : { alias: by.name },
+      whisper,
+      content,
+      flags: { [MODULE_ID]: { share: true } }
+    });
+  } catch (err) {
+    logError("Could not tell the players about their share", err);
+  }
+}
+function planSplit(accountId, members, user) {
+  const holders2 = members.filter((actor) => actor.testUserPermission(user, "OWNER")).map((actor) => ({ actor, holding: holdingOf(actor, accountId) })).filter((h) => !isZero(h.holding)).map((h) => ({ ...h, ...splitCoins(h.holding, members.length) }));
+  const gets = new Map(members.map((m) => [m, emptyCoins()]));
+  for (const h of holders2) {
+    for (const m of members) gets.set(m, add(gets.get(m), h.share));
+    gets.set(h.actor, add(gets.get(h.actor), h.rest));
+  }
+  const total = holders2.reduce((sum, h) => add(sum, h.holding), emptyCoins());
+  return { holders: holders2, gets, total };
+}
+async function requestAccountSplit(accountId) {
+  if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
+  const account = accountOf(accountId);
+  if (!account) return;
+  const members = partyMembers();
+  const { gets, total } = planSplit(account.id, members, game.user);
+  if (isZero(total)) return ui.notifications.warn(loc("Fund.NothingToSplit", { account: accountName(account) }));
+  const nothing = loc("Pile.Split.Nothing");
+  const content = `<p>${locCoins("Fund.SplitIntro", { account: accountName(account), count: members.length }, total)}</p>
+    <ul class="pl-fund-split">${members.map((m) => `<li>${esc(m.name)}: ${coinsHtml(gets.get(m), nothing)}</li>`).join("")}</ul>
+    <p class="hint">${esc(loc("Fund.SplitRest"))}</p>`;
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Fund.SplitTitle", { account: accountName(account) }), icon: "fa-solid fa-scale-balanced" },
+    content,
+    rejectClose: false
+  });
+  if (yes) requestGM({ type: "fundSplit", accountId: account.id, memberIds: members.map((m) => m.id), userId: game.user.id });
+}
+async function executeAccountSplit(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const members = partyMembers();
+  if (!user.isGM && !members.some((a) => a.testUserPermission(user, "OWNER"))) return;
+  const account = accountOf(String(data.accountId ?? ""));
+  if (!account) return;
+  const agreed = Array.isArray(data.memberIds) ? [...data.memberIds].sort().join() : "";
+  if (agreed !== members.map((m) => m.id).sort().join()) return notifyUser(user.id, "warn", loc("Notify.SplitChanged"));
+  const { holders: holders2, gets, total } = planSplit(account.id, members, user);
+  if (isZero(total)) return notifyUser(user.id, "warn", loc("Fund.NothingToSplit", { account: accountName(account) }));
+  const before = new Map(members.map((m) => [m, coinsOf(m)]));
+  for (const h of holders2) {
+    await h.actor.update({ [holdingKey(account.id)]: emptyCoins() });
+    const handed = Object.fromEntries(DENOMINATIONS.map((d) => [d, h.share[d] * (members.length - 1)]));
+    await changeCoins(h.actor, handed, -1);
+  }
+  const by = user.character ?? { name: user.name };
+  for (const m of members) {
+    const received = holders2.filter((h) => h.actor !== m).reduce((sum, h) => add(sum, h.share), emptyCoins());
+    if (!isZero(received)) {
+      await changeCoins(m, received, 1);
+      await announceShare(m, gets.get(m), { by, from: "", account: accountName(account), skip: user.id });
+    }
+    if (!sameCoins(before.get(m), coinsOf(m))) logModuleCoins("fundSplit", m, user, before.get(m), accountName(account));
+  }
+  notifyUser(user.id, "info", loc("Fund.SplitDone", { account: accountName(account), coins: coinsLabel(total), count: members.length }));
+}
+async function openFundDialog(actor) {
+  const holdings = holdingsOf(actor);
+  const owner = actor.isOwner && partyMembers().includes(actor);
+  const rows = fundAccounts().filter((a) => holdings[a.id]).map((a) => `<li>
+      <i class="fa-solid fa-sack-dollar" inert></i>
+      <strong>${esc(accountName(a))}</strong>: ${coinsHtml(holdings[a.id])}</li>`).join("");
+  const buttons = [];
+  if (owner && fundMode() !== "off") buttons.push({ action: "deposit", label: loc("Fund.Deposit"), icon: "fa-solid fa-piggy-bank", default: true });
+  if (fundAccounts().some((a) => canWithdraw(actor, a.id))) buttons.push({ action: "withdraw", label: loc("Fund.Withdraw"), icon: "fa-solid fa-hand-holding-dollar" });
+  buttons.push({ action: "close", label: loc("Fund.Close"), icon: "fa-solid fa-xmark" });
+  const content = rows ? `<p>${esc(loc("Fund.Holds", { actor: actor.name }))}</p><ul class="pl-fund-accounts">${rows}</ul>` : `<p>${esc(loc("Fund.HoldsNothing", { actor: actor.name }))}</p>`;
+  const choice = await foundry.applications.api.DialogV2.wait({
+    window: { title: loc("Fund.Title", { actor: actor.name }), icon: "fa-solid fa-sack-dollar" },
+    content,
+    buttons,
+    rejectClose: false
+  });
+  if (choice === "deposit") return openDepositDialog(actor);
+  if (choice === "withdraw") return openWithdrawDialog(actor);
+}
+var preconfirmed = /* @__PURE__ */ new Set();
+function asked(options) {
+  const own = options?.[MODULE_ID];
+  return !!(own?.bypass || own?.fundConfirmed || own?.notifyUser || own?.coins === "trade" || own?.currency?.source === "invoice");
+}
+function warnFundSpend(actor, changes, options, userId) {
+  if (userId !== game.user.id || asked(options) || preconfirmed.has(actor.uuid) || isZero(fundOf(actor))) return;
+  const currency = foundry.utils.expandObject(changes).system?.currency;
+  if (!currency || typeof currency !== "object") return;
+  const source = coinsOf(actor._source);
+  const after = Object.fromEntries(DENOMINATIONS.map((d) => [d, d in currency ? Math.max(0, Math.trunc(Number(currency[d]) || 0)) : source[d]]));
+  const spent = fundSpent(actor, after);
+  if (!spent.length) return;
+  const again = foundry.utils.deepClone(changes);
+  const { modifiedTime, action, ...keep } = options ?? {};
+  const note = spent.map((s) => `${accountName(s.account)}: ${coinsText(s.coins)}`).join(", ");
+  confirmFundSpend(actor, after).then((yes) => {
+    if (yes) return actor.update(again, { ...keep, [MODULE_ID]: { ...options?.[MODULE_ID] ?? {}, fundConfirmed: note } });
+    if (actor.sheet?.rendered) actor.sheet.render();
+  }).catch((err) => logError(`Could not change the coins of ${actor.name}`, err));
+  return false;
+}
+function guardCurrencyManager() {
+  const Manager = globalThis.dnd5e?.applications?.CurrencyManager;
+  if (typeof Manager?.transferCurrency !== "function") return;
+  const original = Manager.transferCurrency;
+  Manager.transferCurrency = async function(origin, destinations, amounts2) {
+    if (origin?.documentName !== "Actor") return original.call(this, origin, destinations, amounts2);
+    const purse = coinsOf(origin);
+    const after = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d] - Math.max(0, Number(amounts2?.[d]) || 0))]));
+    if (!await confirmFundSpend(origin, after)) return;
+    preconfirmed.add(origin.uuid);
+    try {
+      return await original.call(this, origin, destinations, amounts2);
+    } finally {
+      preconfirmed.delete(origin.uuid);
+    }
+  };
+  if (typeof Manager.deductActorCurrency === "function") {
+    const deduct = Manager.deductActorCurrency;
+    Manager.deductActorCurrency = async function(actor, amount, denomination, options = {}) {
+      if (actor?.documentName === "Actor" && amount > 0 && typeof this.getActorCurrencyUpdates === "function") {
+        const { remainder, ...updates } = this.getActorCurrencyUpdates(actor, amount, denomination, options) ?? {};
+        const changed = foundry.utils.expandObject(updates ?? {}).system?.currency;
+        if (!remainder && changed && typeof changed === "object") {
+          const purse = coinsOf(actor);
+          const after = Object.fromEntries(DENOMINATIONS.map((d) => [d, d in changed ? Math.max(0, Math.trunc(Number(changed[d]) || 0)) : purse[d]]));
+          if (!await confirmFundSpend(actor, after)) throw new Error(loc("Fund.SpendCancelled", { actor: actor.name }));
+          preconfirmed.add(actor.uuid);
+          try {
+            return await deduct.call(this, actor, amount, denomination, options);
+          } finally {
+            preconfirmed.delete(actor.uuid);
+          }
+        }
+      }
+      return deduct.call(this, actor, amount, denomination, options);
+    };
+  }
+}
+function onRenderActorSheet(app, element) {
+  const actor = app.actor ?? app.document;
+  const root = element instanceof HTMLElement ? element : element?.[0] ?? app.element;
+  if (!root || actor?.documentName !== "Actor") return;
+  for (const old of root.querySelectorAll(".pack-ledger-fund")) old.remove();
+  if (fundMode() === "off") return;
+  const fund = fundOf(actor);
+  const canDeposit = actor.isOwner && partyMembers().includes(actor);
+  if (isZero(fund) && !canDeposit) return;
+  for (const currency of root.querySelectorAll("section.currency")) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `pack-ledger-fund always-interactive${isZero(fund) ? " empty" : ""}`;
+    chip.dataset.tooltipText = loc(isZero(fund) ? "Fund.DepositTooltip" : "Fund.Tooltip");
+    const icon = document.createElement("i");
+    icon.className = "fa-solid fa-sack-dollar";
+    icon.setAttribute("inert", "");
+    chip.append(icon);
+    if (!isZero(fund)) {
+      const label2 = document.createElement("span");
+      label2.innerHTML = locCoins("Fund.Chip", {}, fund);
+      chip.append(label2);
+    } else chip.setAttribute("aria-label", loc("Fund.DepositTooltip"));
+    chip.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isZero(fundOf(actor))) openDepositDialog(actor);
+      else openFundDialog(actor);
+    });
+    currency.append(chip);
+  }
+}
+function onUpdateActor2(actor, changes) {
+  if (game.user !== game.users.activeGM || !foundry.utils.hasProperty(changes, "system.currency")) return;
+  const noted = actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG];
+  if (!noted || typeof noted !== "object") return;
+  const held = holdingsOf(actor);
+  const update = {};
+  for (const id of Object.keys(noted)) {
+    const now = held[id] ?? emptyCoins();
+    if (!sameCoins(now, coinsOf(noted[id]))) update[holdingKey(id)] = now;
+  }
+  if (Object.keys(update).length) {
+    actor.update(update).catch((err) => logError(`Could not adjust the group fund of ${actor.name}`, err));
+  }
+}
+Hooks.once("init", () => {
+  Hooks.on("renderActorSheetV2", onRenderActorSheet);
+  Hooks.on("preUpdateActor", warnFundSpend);
+  Hooks.on("updateActor", onUpdateActor2);
+});
+Hooks.once("ready", () => {
+  try {
+    guardCurrencyManager();
+  } catch (err) {
+    logError("Could not watch dnd5e's currency transfer", err);
+  }
+});
+registerHandler("fundSplit", (data, senderId) => executeAccountSplit(data, senderId).catch((err) => logError("Could not share out an account of the group fund", err)));
+registerHandler("fundLog", (data, senderId) => {
+  try {
+    executeFundLog(data, senderId);
+  } catch (err) {
+    logError("Could not log a move of the group fund", err);
+  }
+});
+registerHandler("fundAccount", (data, senderId) => executeAccount(data, senderId).catch((err) => logError("Could not change an account of the group fund", err)));
+
 // src/ui/provisions-app.ts
 var ProvisionsAppClass = null;
 function openProvisionsApp() {
@@ -5102,6 +6205,12 @@ function getProvisionsAppClass() {
         openItem: PackLedgerProvisionsApp.#onOpenItem,
         removeResource: PackLedgerProvisionsApp.#onRemoveResource,
         openMeals: () => openRestMealApp(),
+        splitFund: (event, target) => requestAccountSplit(target.dataset.accountId ?? ""),
+        depositFund: (event, target) => openDepositDialog(void 0, target.dataset.accountId),
+        withdrawFund: PackLedgerProvisionsApp.#onWithdrawFund,
+        newAccount: () => openAccountDialog(),
+        renameAccount: (event, target) => openAccountDialog(target.dataset.accountId),
+        deleteAccount: PackLedgerProvisionsApp.#onDeleteAccount,
         refillWater: PackLedgerProvisionsApp.#onRefillWater,
         switchList: PackLedgerProvisionsApp.#onSwitchList
       }
@@ -5146,15 +6255,17 @@ function getProvisionsAppClass() {
           <span>${esc(loc(label2))}</span><strong>${esc(loc("Provisions.DaysCount", { days: daysText(value) }))}</strong></div>`;
       const magicNote = magic.jugs || magic.tankards ? `<p class="pl-provisions-note"><i class="fa-solid fa-wand-sparkles" inert></i>
             ${esc(loc("Provisions.Magic.Note", { jugs: magic.jugs, tankards: magic.tankards }))}</p>` : "";
+      const fundOn = fundMode() !== "off";
+      if (!fundOn && this.#tab === "fund") this.#tab = "characters";
       const empty = game.user.isGM ? refillableCount() : 0;
-      const refill = game.user.isGM ? `<div class="pl-provisions-actions">
+      const refill2 = game.user.isGM ? `<div class="pl-provisions-actions">
           <button type="button" data-action="refillWater"${empty ? "" : " disabled"}
             data-tooltip="${esc(loc(empty ? "Provisions.Refill.Hint" : "Provisions.Refill.AllFull"))}">
             <i class="fa-solid fa-droplet" inert></i> ${esc(loc("Provisions.Refill.Button"))}${empty ? ` <span class="count">${empty}</span>` : ""}</button>
         </div>` : "";
       const tab = (id, icon, label2, count) => `<button type="button" class="${this.#tab === id ? "active" : ""}" data-action="switchList" data-list="${id}" aria-pressed="${this.#tab === id}">
           <i class="fa-solid ${icon}" inert></i> ${esc(loc(label2))} <span class="count">${count}</span></button>`;
-      const list = this.#tab === "stores" ? stores.length ? stores.map((actor) => this.#card(actor, listedItems(actor, { all: true }), true)).join("") : `<p class="pl-provisions-empty">${esc(loc("Provisions.NoStores"))}</p>` : others.length ? others.map((actor) => this.#card(actor, listedItems(actor), false)).join("") : `<p class="pl-provisions-empty">${esc(loc("Provisions.NoCharacters"))}</p>`;
+      const list = this.#tab === "fund" ? this.#fundList(members) : this.#tab === "stores" ? stores.length ? stores.map((actor) => this.#card(actor, listedItems(actor, { all: true }), true)).join("") : `<p class="pl-provisions-empty">${esc(loc("Provisions.NoStores"))}</p>` : others.length ? others.map((actor) => this.#card(actor, listedItems(actor), false)).join("") : `<p class="pl-provisions-empty">${esc(loc("Provisions.NoCharacters"))}</p>`;
       const root = document.createElement("div");
       root.className = "pl-provisions";
       root.innerHTML = `
@@ -5172,16 +6283,63 @@ function getProvisionsAppClass() {
             ${esc(loc("Provisions.NeedPerDay", { food: number2(need.food), water: number2(need.water) }))}
             ${esc(loc("Provisions.NeedOwn"))}</p>
           ${magicNote}
-          ${refill}
+          ${refill2}
           <nav class="pl-tabs" role="tablist">
             ${tab("characters", "fa-users", "Provisions.Tab.Characters", others.length)}
             ${tab("stores", "fa-caravan", "Provisions.Tab.Stores", stores.length)}
+            ${fundOn ? tab("fund", "fa-sack-dollar", "Provisions.Tab.Fund", fundAccounts().length) : ""}
           </nav>
         </section>
         <div class="pl-provisions-cards">${list}</div>
         ${this.#sessionBar()}
 `;
       return root;
+    }
+    /** The group fund: in all, then a card per purpose with what each character has put in for it. */
+    #fundList(members) {
+      const total = members.reduce((sum, a) => add(sum, fundOf(a)), emptyCoins());
+      const canPay = depositors().length > 0;
+      const summary = `<section class="pl-provisions-card pl-fund-summary">
+          <header><i class="fa-solid fa-sack-dollar" inert></i>
+            <span class="name">${locCoins("Fund.Total", {}, total, loc("Fund.None"))}</span></header>
+          ${canPay || game.user.isGM ? `<div class="pl-fund-actions">
+            ${canPay ? `<button type="button" data-action="depositFund"><i class="fa-solid fa-piggy-bank" inert></i> ${esc(loc("Fund.Deposit"))}</button>` : ""}
+            <button type="button" data-action="newAccount"><i class="fa-solid fa-plus" inert></i> ${esc(loc("Fund.NewAccount"))}</button>
+          </div>` : ""}
+        </section>`;
+      const cards = fundAccounts().map((account) => {
+        const id = account.id;
+        const holders2 = members.filter((m) => !isZero(holdingOf(m, id)));
+        const sum = holders2.reduce((all, m) => add(all, holdingOf(m, id)), emptyCoins());
+        const button2 = (action, icon, label2, tooltip = label2, extra = "") => `<button type="button" class="icon" data-action="${action}" data-account-id="${id}"${extra}
+            data-tooltip="${esc(tooltip)}" aria-label="${esc(label2)}"><i class="fa-solid ${icon}" inert></i></button>`;
+        const buttons = [
+          canPay ? button2("depositFund", "fa-piggy-bank", loc("Fund.Deposit")) : "",
+          // Only coins of the own characters are shared out.
+          members.length > 1 && holders2.some((m) => m.isOwner) ? button2("splitFund", "fa-scale-balanced", loc("Fund.Split")) : "",
+          canPay || game.user.isGM ? button2("renameAccount", "fa-pen", loc("Fund.RenameAccount")) : "",
+          // Players remove only purposes without coins.
+          id !== MAIN_ACCOUNT && (game.user.isGM || canPay && isEmptyAccount(id)) ? button2("deleteAccount", "fa-trash", loc("Fund.DeleteAccount"), `${loc("Fund.DeleteAccount")}: ${loc("Fund.DeleteHint")}`) : ""
+        ].join("");
+        const rows = holders2.map((m) => {
+          const out = canWithdraw(m, id) ? `<button type="button" class="icon" data-action="withdrawFund" data-account-id="${id}"
+              data-actor-id="${m.id}" data-tooltip="${esc(loc("Fund.Withdraw"))}" aria-label="${esc(loc("Fund.Withdraw"))}">
+              <i class="fa-solid fa-hand-holding-dollar" inert></i></button>` : "";
+          return `<li>
+            <a data-action="openActor" data-actor-id="${m.id}"><img src="${esc(m.img)}" alt=""><span class="name">${esc(m.name)}</span></a>
+            <span class="pl-fund-holding">${coinsHtml(holdingOf(m, id))}</span>${out}</li>`;
+        }).join("");
+        return `<section class="pl-provisions-card pl-fund-card">
+          <header>
+            <i class="fa-solid fa-sack-dollar pl-fund-icon" inert></i>
+            <span class="name">${esc(accountName(account))}</span>
+            ${buttons ? `<div class="pl-fund-buttons">${buttons}</div>` : ""}
+          </header>
+          <div class="pl-fund-coins">${isZero(sum) ? `<span class="pl-none">${esc(loc("Fund.None"))}</span>` : coinsHtml(sum)}</div>
+          ${rows ? `<ul class="pl-items pl-fund-rows">${rows}</ul>` : ""}
+        </section>`;
+      }).join("");
+      return summary + cards;
     }
     /** While the meals of a called rest are shared out: a way back to that window for those taking part. */
     #sessionBar() {
@@ -5236,7 +6394,8 @@ function getProvisionsAppClass() {
       });
     }
     static #onSwitchList(event, target) {
-      const tab = target.dataset.list === "stores" ? "stores" : "characters";
+      const list = target.dataset.list;
+      const tab = list === "stores" || list === "fund" ? list : "characters";
       if (tab === this.#tab) return;
       this.#tab = tab;
       this.render();
@@ -5263,12 +6422,87 @@ function getProvisionsAppClass() {
         this.render();
       }
     }
+    static #onWithdrawFund(event, target) {
+      const actor = game.actors.get(target.dataset.actorId ?? "");
+      if (actor) openWithdrawDialog(actor, target.dataset.accountId);
+    }
+    static async #onDeleteAccount(event, target) {
+      const account = accountOf(target.dataset.accountId ?? "");
+      if (!account || !game.user.isGM) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Fund.DeleteAccount"), icon: "fa-solid fa-trash" },
+        content: `<p>${esc(loc("Fund.DeleteConfirm", { account: accountName(account) }))}</p>`,
+        rejectClose: false
+      });
+      if (yes) requestAccount("delete", { id: account.id });
+    }
     static async #onRemoveResource(event, target) {
       await removeResource(target.dataset.id ?? "");
     }
   };
   return ProvisionsAppClass;
 }
+
+// src/core/settings/currency-settings.ts
+Hooks.once("init", () => {
+  registerSetting("currencyAudit", { type: Boolean, default: true });
+  registerSetting("currencyAuditGM", { type: Boolean, default: true });
+  registerSetting("currencyAskReason", { type: Boolean, default: true });
+  registerSetting("currencySuspiciousCount", { type: Number, default: 3 });
+  registerSetting("currencySuspiciousSeconds", { type: Number, default: 1 });
+  registerSetting("currencyMath", { type: Boolean, default: true });
+  registerSetting("currencyAutoConvert", { type: Boolean, default: true });
+  registerSetting("currencyPlatinum", { type: Boolean, default: false });
+  registerSetting("currencyElectrum", { type: Boolean, default: false });
+  registerSetting("invoicesEnabled", { type: Boolean, default: true });
+  registerSetting("partyFund", {
+    type: String,
+    default: "button",
+    choices: {
+      off: "PACK_LEDGER.Settings.partyFund.Off",
+      button: "PACK_LEDGER.Settings.partyFund.Button",
+      always: "PACK_LEDGER.Settings.partyFund.Always"
+    },
+    // The fund shows on the sheets and in the group inventory, or not.
+    onChange: () => {
+      refreshProvisionsApp();
+      rerenderActorSheets();
+    }
+  });
+  game.settings.register(MODULE_ID, "fundAccounts", {
+    scope: "world",
+    config: false,
+    type: Array,
+    default: [],
+    onChange: () => {
+      refreshProvisionsApp();
+      rerenderActorSheets();
+    }
+  });
+  game.settings.register(MODULE_ID, "invoiceTemplates", { scope: "world", config: false, type: Array, default: [] });
+  game.settings.register(MODULE_ID, "invoiceTemplatesSeeded", { scope: "world", config: false, type: Boolean, default: false });
+});
+
+// src/core/settings/tracker-settings.ts
+Hooks.once("init", () => {
+  registerSetting("trackerEnabled", { type: Boolean, default: true });
+  registerSetting("trackerHideGM", { type: Boolean, default: true });
+  registerSetting("trackerAllOwned", { type: Boolean, default: true });
+  registerSetting("trackerConcentration", { type: Boolean, default: true });
+  registerSetting("trackerSpells", { type: Boolean, default: true });
+  registerSetting("trackerPrivate", { type: Boolean, default: false });
+  registerSetting("trackerPrivateFields", {
+    type: String,
+    default: [
+      "system.details.biography",
+      "system.details.trait",
+      "system.details.ideal",
+      "system.details.bond",
+      "system.details.flaw",
+      "system.details.appearance"
+    ].join(", ")
+  });
+});
 
 // src/core/settings/provision-settings.ts
 Hooks.once("init", () => {
@@ -5497,15 +6731,22 @@ function checkTopLevel(actor, item, { pendingSlots = {}, weight: weightOverride,
 function findStowTarget(actor, item, options, { additions = [], containers = [] } = {}) {
   const count = itemCount(item);
   const weightIn = (units) => itemWeightIn(item, units);
-  const candidates = actor.items.filter((c) => c.type === "container" && c.id !== item.id && getSlot(c) !== "jug" && c.system.canViewContents !== false).sort((a, b) => (a.system.container ? 1 : 0) - (b.system.container ? 1 : 0) || (a.sort ?? 0) - (b.sort ?? 0));
-  for (const container of candidates) {
-    if (!findOverflow(container, { count, weightIn, pending: additions })) return container;
+  const water = isWater(item);
+  const candidates = actor.items.filter((c) => c.type === "container" && c.id !== item.id && (getSlot(c) !== "jug" || water && isWaterskin(c)) && c.system.canViewContents !== false).sort((a, b) => (a.system.container ? 1 : 0) - (b.system.container ? 1 : 0) || (a.sort ?? 0) - (b.sort ?? 0));
+  const first = candidates.filter((c) => acceptsItem(c, item) || water && isWaterskin(c));
+  for (const container of [...first, ...candidates.filter((c) => !first.includes(c))]) {
+    if (!findOverflow(container, { count, weightIn, pending: additions, item })) return container;
   }
   if (!options?.keepId) return null;
-  const stub = containers.find((c) => c.id !== item.id);
+  const rulesOn = !!getSetting("ammoContainers");
+  const kind = ammoKind(item);
+  const takes = (holds) => !!holds && AMMO_CONTAINERS[holds]?.compartments.some((c) => c.kinds.includes(kind));
+  const fits = (holds) => !rulesOn || (holds ? takes(holds) : !needsAmmoContainer(item));
+  const wet = (waterskin) => !waterskin || !waterskinRulesActive() || water;
+  const stub = containers.find((c) => c.id !== item.id && fits(c.ammo) && wet(!!c.waterskin));
   if (stub) return stub;
   if (Array.isArray(options.data)) {
-    const data = options.data.find((d) => d.type === "container" && d._id && d._id !== item.id && !d.system?.container && !isJugName(d.name) && d.flags?.[MODULE_ID]?.[FLAG_SLOT] !== "jug");
+    const data = options.data.find((d) => d.type === "container" && d._id && d._id !== item.id && !d.system?.container && (!isJugName(d.name) && d.flags?.[MODULE_ID]?.[FLAG_SLOT] !== "jug" || water && isWaterskinKind(d)) && fits(ammoContainerKind(d)) && wet(isWaterskinKind(d)));
     if (data) return { id: data._id, name: data.name };
   }
   return null;
@@ -5548,225 +6789,6 @@ async function tidyInventory(actor) {
     });
   }
   return { stowed: updates.length, unplaced };
-}
-
-// src/feature/piles/pile-items.ts
-var itemLabel = (name, quantity) => quantity > 1 ? `${name} \xD7${quantity}` : name;
-function isPhysicalData(item) {
-  return PHYSICAL_TYPES.has(item?.type);
-}
-function stackQuantity(item) {
-  if (item?.type === "container") return 1;
-  return Math.max(1, Math.floor(Number(item?.system?.quantity ?? 1)) || 1);
-}
-function topLevel(actor) {
-  return actor.items.filter((i) => isPhysicalData(i) && !actor.items.has(i.system?.container));
-}
-function descendants(actor, item) {
-  if (item.type !== "container") return [];
-  const result = [];
-  const queue6 = [item.id];
-  const seen = new Set(queue6);
-  while (queue6.length) {
-    const id = queue6.shift();
-    for (const child of actor.items) {
-      if (child.system?.container !== id || seen.has(child.id)) continue;
-      seen.add(child.id);
-      result.push(child);
-      queue6.push(child.id);
-    }
-  }
-  return result;
-}
-function remapIds(items) {
-  const map = new Map(items.map((i) => [i._id, foundry.utils.randomID()]));
-  for (const item of items) {
-    item._id = map.get(item._id);
-    if (item.system) item.system.container = map.get(item.system.container) ?? null;
-  }
-  return items;
-}
-function unequip(data) {
-  if (data.system && "equipped" in data.system) data.system.equipped = false;
-  if (data.system && "attuned" in data.system) data.system.attuned = false;
-  return data;
-}
-function transferData(item, nested, quantity) {
-  const top = unequip(item.toObject());
-  if (item.type !== "container" && top.system) top.system.quantity = quantity;
-  return [top, ...nested.map((i) => i.toObject())];
-}
-var MASKED = {
-  potion: { name: "Pile.Masked.Potion", description: "Pile.Masked.PotionDescription" },
-  scroll: { name: "Pile.Masked.Scroll", description: "Pile.Masked.ScrollDescription" }
-};
-function maskConsumable(data) {
-  const kind = data?.type === "consumable" ? MASKED[data.system?.type?.value] : null;
-  if (!kind) return data;
-  const unidentified = data.system.unidentified ?? {};
-  data.system.identified = false;
-  data.system.unidentified = {
-    ...unidentified,
-    name: unidentified.name || loc(kind.name),
-    description: unidentified.description || `<p>${loc(kind.description)}</p>`
-  };
-  return data;
-}
-function sameStack(item, data) {
-  if (!item || !data || item.type !== data.type || item.type === "container") return false;
-  return (item._source?.name ?? item.name) === data.name && item.img === data.img && (item._source.system?.weight?.value ?? 0) === (data.system?.weight?.value ?? 0) && (item._source.system?.identified ?? true) === (data.system?.identified ?? true);
-}
-async function mergeIntoStack(actor, data, options = {}) {
-  if (!data || data.type === "container") return null;
-  const matches = actor.items.filter((i) => sameStack(i, data)).sort((a, b) => Number(!!a.system?.container) - Number(!!b.system?.container));
-  const add2 = stackQuantity(data);
-  for (const item of matches) {
-    const previous = stackQuantity(item);
-    const updated = await item.update({ "system.quantity": previous + add2 }, { ...options });
-    if (updated && stackQuantity(item) === previous + add2) return { item, previous };
-  }
-  return null;
-}
-
-// src/feature/piles/pile-tokens.ts
-var PILE_ICON = "icons/containers/bags/pack-leather-brown.webp";
-var CHEST_ICON = "icons/containers/chest/chest-reinforced-steel-brown.webp";
-var COIN_ICON = "icons/commodities/currency/coins-assorted-mix-copper-silver-gold.webp";
-var PILE_SIZE = 0.5;
-var pileActorPromise = null;
-var SIZE_LOCK = { lockSize: true, lockScale: true };
-var hasSizeLock = (flags) => flags?.dnd5e?.lockSize === true && flags?.dnd5e?.lockScale === true;
-async function getPileActor() {
-  const stored = game.actors.get(getSetting("pileActorId"));
-  if (isPile(stored)) {
-    if (!hasSizeLock(stored.prototypeToken.flags)) {
-      await stored.update({ "prototypeToken.flags.dnd5e": SIZE_LOCK, "prototypeToken.width": PILE_SIZE, "prototypeToken.height": PILE_SIZE });
-    }
-    return stored;
-  }
-  pileActorPromise ??= (async () => {
-    let actor = game.actors.find((a) => isPile(a));
-    actor ??= await Actor.implementation.create({
-      name: loc("Pile.ActorName"),
-      type: "npc",
-      img: PILE_ICON,
-      ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER },
-      flags: { [MODULE_ID]: { pile: true } },
-      prototypeToken: {
-        name: loc("Pile.ActorName"),
-        actorLink: false,
-        width: PILE_SIZE,
-        height: PILE_SIZE,
-        texture: { src: PILE_ICON },
-        disposition: CONST.TOKEN_DISPOSITIONS.NEUTRAL,
-        displayName: CONST.TOKEN_DISPLAY_MODES.HOVER,
-        displayBars: CONST.TOKEN_DISPLAY_MODES.NONE,
-        lockRotation: true,
-        sight: { enabled: false },
-        ring: { enabled: false },
-        flags: { [MODULE_ID]: { pile: true }, dnd5e: SIZE_LOCK }
-      }
-    });
-    await game.settings.set(MODULE_ID, "pileActorId", actor.id);
-    return actor;
-  })().finally(() => {
-    pileActorPromise = null;
-  });
-  return pileActorPromise;
-}
-function appearance(entries, { coins, lock } = {}) {
-  if (lock) return { name: loc(lock.locked ? "Pile.ChestLocked" : "Pile.Chest"), img: CHEST_ICON };
-  const withCoins = hasCoins(coins);
-  if (!entries.length) {
-    return withCoins ? { name: loc("Pile.CoinsName"), img: COIN_ICON } : { name: loc("Pile.Empty"), img: PILE_ICON };
-  }
-  if (entries.length === 1 && !withCoins) return { name: entries[0].name, img: entries[0].img || PILE_ICON };
-  return { name: loc("Pile.Name"), img: PILE_ICON };
-}
-var entryOf = (item) => ({ name: item.name, img: item.img, quantity: stackQuantity(item) });
-async function createPile(scene, { x, y, elevation = 0, level, rotation = 0 }, itemsData, flags = {}, { currency } = {}) {
-  const base = await getPileActor();
-  const items = remapIds(foundry.utils.deepClone(itemsData));
-  const coins = coinsOf2(currency);
-  const look = appearance(items.filter((i) => !i.system?.container).map(entryOf), { coins });
-  const half2 = PILE_SIZE * scene.grid.size / 2;
-  const tokenDocument = await base.getTokenDocument({
-    name: look.name,
-    texture: { src: look.img },
-    x: Math.round(x - half2),
-    y: Math.round(y - half2),
-    elevation,
-    rotation,
-    ...typeof level === "string" && level ? { level } : {},
-    width: PILE_SIZE,
-    height: PILE_SIZE,
-    flags: { [MODULE_ID]: { pile: true, ...flags }, dnd5e: SIZE_LOCK }
-  });
-  const [token] = await scene.createEmbeddedDocuments("Token", [tokenDocument.toObject()]);
-  if (!token) return null;
-  try {
-    if (items.length) await token.actor.createEmbeddedDocuments("Item", items, { keepId: true, ...BYPASS() });
-    if (hasCoins(coins)) await token.actor.update({ "system.currency": coins }, BYPASS());
-  } catch (err) {
-    await token.delete();
-    throw err;
-  }
-  return token;
-}
-async function addToPile(token, itemsData) {
-  const pile = token.actor;
-  const [top, ...nested] = itemsData;
-  if (!nested.length && top.type !== "container") {
-    const match = topLevel(pile).find((i) => sameStack(i, top));
-    if (match) {
-      return match.update({ "system.quantity": stackQuantity(match) + stackQuantity(top) }, BYPASS());
-    }
-  }
-  await pile.createEmbeddedDocuments("Item", remapIds(foundry.utils.deepClone(itemsData)), { keepId: true, ...BYPASS() });
-}
-async function afterPileChange(token) {
-  if (!isPileToken(token) || !token.parent?.tokens.has(token.id)) return;
-  const empty = !topLevel(token.actor).length && !hasCoins(coinsOf2(token.actor));
-  if (empty && !pileLock(token) && getSetting("pileDeleteEmpty")) return token.delete();
-  return refreshPileLook(token);
-}
-function automaticLook(token) {
-  return appearance(topLevel(token.actor).map(entryOf), { coins: coinsOf2(token.actor), lock: pileLock(token) });
-}
-async function refreshPileLook(token) {
-  if (!isPileToken(token) || !token.parent?.tokens.has(token.id)) return;
-  const look = automaticLook(token);
-  look.name = pileCustomName(token) || look.name;
-  if (look.name !== token.name || look.img !== token.texture.src) {
-    await token.update({ name: look.name, "texture.src": look.img });
-  }
-}
-async function refreshAllPileLooks() {
-  if (game.users.activeGM !== game.user) return;
-  for (const scene of game.scenes) {
-    for (const token of scene.tokens) {
-      if (!isPileToken(token)) continue;
-      try {
-        await refreshPileLook(token);
-      } catch (err) {
-        logWarn(`Could not refresh pile ${token.uuid}`, err);
-      }
-    }
-  }
-}
-async function changeCoins(actor, amounts2, sign) {
-  const current = coinsOf2(actor);
-  const update = {};
-  for (const d of COINS) {
-    if (amounts2[d]) update[`system.currency.${d}`] = Math.max(0, current[d] + sign * amounts2[d]);
-  }
-  if (Object.keys(update).length) await actor.update(update, BYPASS());
-}
-function blockedFor(user, token) {
-  if (user.isGM) return null;
-  if (token.hidden) return "Notify.AlreadyPicked";
-  if (isLocked(token)) return "Notify.PileLocked";
-  return null;
 }
 
 // src/feature/provisions/store-lock.ts
@@ -5834,7 +6856,7 @@ function resolveTaker() {
 function canReach(token, actor) {
   return game.user.isGM || withinRange(token.parent, actor, pileCenter(token), token.width);
 }
-function requestTake(token, { itemIds = null, quantity, actor, coins = false, containerId = null } = {}) {
+function requestTake(token, { itemIds = null, quantity, actor, coins = false, containerId = null, fund = false } = {}) {
   if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
   actor ??= resolveTaker();
   if (!actor) return ui.notifications.warn(loc("Notify.NoPickupActor"));
@@ -5848,10 +6870,45 @@ function requestTake(token, { itemIds = null, quantity, actor, coins = false, co
     quantity,
     coins,
     containerId,
+    fund,
     actorUuid: actor.uuid,
     userId: game.user.id
   });
 }
+async function requestSplitCoins(token, { containerId = null } = {}) {
+  if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
+  const actor = resolveTaker();
+  if (!actor) return ui.notifications.warn(loc("Notify.NoPickupActor"));
+  if (!canReach(token, actor)) return ui.notifications.warn(loc("Notify.OutOfRange", { actor: actor.name }));
+  if (!game.user.isGM && isLocked(token)) return ui.notifications.warn(loc("Notify.PileLocked"));
+  const members = partyMembers();
+  if (!members.includes(actor)) return ui.notifications.warn(loc("Notify.SplitNotMember", { actor: actor.name }));
+  const holder = containerId ? token.actor?.items.get(containerId) : token.actor;
+  const coins = coinsOf2(holder);
+  if (!hasCoins(coins)) return ui.notifications.warn(loc("Notify.NoCoinsHere"));
+  const { share, rest } = splitCoins(coins, members.length);
+  const esc2 = (value) => foundry.utils.escapeHTML(String(value ?? ""));
+  const nothing = loc("Pile.Split.Nothing");
+  const content = `<p>${esc2(loc("Pile.Split.Intro", { coins: coinsLabel(coins), count: members.length }))}</p>
+    <ul>${members.map((m) => `<li>${esc2(m.name)}: ${esc2(coinsLabel(m === actor ? addCoins(share, rest) : share) || nothing)}</li>`).join("")}</ul>
+    ${hasCoins(rest) ? `<p>${esc2(loc("Pile.Split.Rest", { actor: actor.name, coins: coinsLabel(rest) }))}</p>` : ""}`;
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Pile.Split.Title"), icon: "fa-solid fa-scale-balanced" },
+    content,
+    rejectClose: false
+  });
+  if (!yes) return;
+  requestGM({
+    type: "pileSplitCoins",
+    sceneId: token.parent.id,
+    tokenId: token.id,
+    containerId,
+    actorUuid: actor.uuid,
+    memberIds: members.map((m) => m.id),
+    userId: game.user.id
+  });
+}
+var addCoins = (a, b) => Object.fromEntries(COINS.map((d) => [d, (a[d] ?? 0) + (b[d] ?? 0)]));
 async function promptCoins(actor) {
   const own = coinsOf2(actor);
   const available = COINS.filter((d) => own[d] > 0);
@@ -5897,6 +6954,7 @@ async function promptCoins(actor) {
     ui.notifications.warn(loc("Notify.NoCoinsChosen"));
     return null;
   }
+  if (!await confirmFundGive(actor, amounts2)) return null;
   return amounts2;
 }
 async function dropCoins(actor, { scene, x, y, token, containerId = null }) {
@@ -6135,7 +7193,7 @@ Hooks.once("init", () => {
 });
 
 // src/ui/actor-sheet.ts
-function onRenderActorSheet(app, element) {
+function onRenderActorSheet2(app, element) {
   const actor = app.actor ?? app.document;
   if (actor?.documentName !== "Actor") return;
   const root = element instanceof HTMLElement ? element : element?.[0];
@@ -6287,8 +7345,8 @@ function buildSlotBar(actor) {
 }
 function guardSlotOverride(item, changes, options, userId) {
   if (game.users.get(userId)?.isGM) return;
-  const flags = foundry.utils.expandObject(changes)?.flags?.[MODULE_ID];
-  if (!flags || !(FLAG_SLOT in flags || `-=${FLAG_SLOT}` in flags)) return;
+  const flags2 = foundry.utils.expandObject(changes)?.flags?.[MODULE_ID];
+  if (!flags2 || !(FLAG_SLOT in flags2 || `-=${FLAG_SLOT}` in flags2)) return;
   ui.notifications.warn(loc("Notify.SlotGMOnly"));
   return false;
 }
@@ -6309,6 +7367,18 @@ function onGetItemContextOptions(item, options) {
       icon: "fa-solid fa-screwdriver-wrench fa-fw",
       group: "state",
       onClick: () => repairContainer(item)
+    });
+  }
+  if (game.user.isGM && canRefill(item)) {
+    options.push({
+      label: loc("Context.Refill"),
+      icon: "fa-solid fa-droplet fa-fw",
+      group: "state",
+      onClick: async () => {
+        const name = item.name;
+        const { pints } = await refillVessel(item);
+        ui.notifications.info(loc(pints ? "Provisions.Refill.One" : "Provisions.Refill.OneFull", { item: name, pints }));
+      }
     });
   }
   if (!game.user.isGM || !slotsApplyTo(item.actor)) return;
@@ -6418,7 +7488,7 @@ async function openSlotManager(actor) {
   if (updates.length) await actor.updateEmbeddedDocuments("Item", updates);
 }
 Hooks.once("init", () => {
-  Hooks.on("renderActorSheetV2", onRenderActorSheet);
+  Hooks.on("renderActorSheetV2", onRenderActorSheet2);
   Hooks.on("dnd5e.getItemContextOptions", onGetItemContextOptions);
 });
 
@@ -6446,8 +7516,28 @@ function shouldSkip(item, options) {
 function notify(options, level, message) {
   notifyUser(options?.[MODULE_ID]?.notifyUser, level, message);
 }
-function notifyOverflow(item, { container, kind, value, max, units }, options) {
+function notifyOverflow(item, overflow, options) {
+  const { container, kind, value, max, units } = overflow;
   if (kind === "torn") return notify(options, "warn", loc("Notify.TornContainer", { container: container.name }));
+  if (kind === "content") {
+    return notify(options, "warn", loc("Notify.WrongContent", {
+      item: item.name,
+      container: container.name,
+      holds: loc(`AmmoContainers.Holds.${overflow.holds}`)
+    }));
+  }
+  if (kind === "wornOnly") return notify(options, "warn", loc("Notify.AmmoContainerWorn", { item: item.name, container: container.name }));
+  if (kind === "ammoOnly") return notify(options, "warn", loc("Notify.AmmoOnly", { item: item.name, container: container.name }));
+  if (kind === "waterOnly") return notify(options, "warn", loc("Notify.WaterOnly", { item: item.name, container: container.name }));
+  if (kind === "compartment") {
+    return notify(options, "warn", loc("Notify.CompartmentFull", {
+      item: item.name,
+      container: container.name,
+      value,
+      max,
+      what: loc(`AmmoContainers.Compartment.${overflow.compartment}`)
+    }));
+  }
   const key = kind === "count" ? "Notify.OverflowCount" : "Notify.OverflowWeight";
   notify(options, "warn", loc(key, {
     item: item.name,
@@ -6497,8 +7587,23 @@ function queueStowNotice(actor, item, container, target, logged) {
     }
   }, 100);
 }
-function resolveOverflow(item, overflow, options) {
-  if (overflow.kind === "torn" || getSetting("overfillMode") !== "risk") {
+async function confirmOverfill(item, container, retry, options) {
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Overfill.Title"), icon: "fa-solid fa-triangle-exclamation" },
+    content: `<p>${foundry.utils.escapeHTML(loc("Overfill.Content", { item: item.name, container: container.name }))}</p>`,
+    rejectClose: false
+  });
+  if (!yes) return;
+  const strict = options?.[MODULE_ID]?.strict;
+  try {
+    await retry({ [MODULE_ID]: { overfillConfirmed: true, ...strict ? { strict } : {} } });
+  } catch (err) {
+    console.error(`${MODULE_ID} | Could not store "${item.name}" in "${container.name}"`, err);
+  }
+}
+function resolveOverflow(item, overflow, options, retry) {
+  const hard = ["torn", "content", "compartment", "ammoOnly", "wornOnly", "waterOnly"].includes(overflow.kind) || !!ammoContainerRule(overflow.container) || isWaterskin(overflow.container);
+  if (hard || getSetting("overfillMode") !== "risk") {
     notifyOverflow(item, overflow, options);
     return false;
   }
@@ -6506,35 +7611,31 @@ function resolveOverflow(item, overflow, options) {
   const percent = (value - max) / max * 100;
   const hardLimit = Math.max(0, Number(getSetting("overfillHardLimit")) || 0);
   if (hardLimit && percent > hardLimit) {
-    notify(options, "warn", loc("Notify.OverfillLimit", {
-      item: item.name,
-      container: container.name,
-      percent: round2(percent),
-      limit: hardLimit
-    }));
+    notify(options, "warn", loc("Notify.OverfillLimit", { item: item.name, container: container.name }));
     return false;
   }
   const factor = Math.max(0, Number(getSetting("tearChanceFactor")) || 0);
   const chance = Math.min(100, Math.max(0, percent * factor));
+  const mod = moduleOptions(options);
+  const ownAction = !mod.notifyUser;
+  if (retry && ownAction && !mod.overfillConfirmed) {
+    confirmOverfill(item, container, retry, options);
+    return false;
+  }
   const actor = item.parent;
   const canTear = !!game.users.activeGM && actor.getActiveTokens(false, true).length > 0;
   if (canTear && Math.random() * 100 < chance) {
-    const mod = moduleOptions(options);
     mod.tear ??= { containerId: container.id, percent, chance, notifyUser: mod.notifyUser };
     return true;
   }
-  notify(options, "warn", loc("Notify.Overfilled", {
-    container: container.name,
-    percent: round2(percent),
-    chance: round2(chance)
-  }));
+  if (!mod.overfillConfirmed) notify(options, "warn", loc("Notify.Overfilled", { container: container.name }));
   return true;
 }
-function checkContainer(item, container, { count, weightIn, excludeId, options }) {
+function checkContainer(item, container, { count, weightIn, excludeId, options, retry }) {
   const pending = pendingState(options);
-  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending.additions });
-  if (overflow && !resolveOverflow(item, overflow, options)) return false;
-  pending.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn });
+  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending.additions, item });
+  if (overflow && !resolveOverflow(item, overflow, options, retry)) return false;
+  pending.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn, item });
   return true;
 }
 function checkSlot(actor, item, options, { weight, quantity } = {}) {
@@ -6552,24 +7653,34 @@ function handleTear(item, options, userId) {
   delete options[MODULE_ID].tear;
   if (item.parent?.documentName === "Actor") requestTear(item.parent, tear);
 }
+function markWeightlessContents(item, options) {
+  if (options?.[MODULE_ID]?.bypass || !ammoContainerRule(item)?.weightless) return;
+  const properties = Array.from(item._source.system?.properties ?? []);
+  if (!properties.includes("weightlessContents")) item.updateSource({ "system.properties": [...properties, "weightlessContents"] });
+}
 function onPreCreateItem(item, data, options) {
+  markWeightlessContents(item, options);
   if (shouldSkip(item, options)) return;
   const actor = item.parent;
   const containerId = item.system.container;
   const count = itemCount(item);
   const weightIn = (units) => itemWeightIn(item, units);
   if (containerId) {
-    if (!getSetting("enforceCapacity")) return;
     const container = actor.items.get(containerId);
     if (container?.type !== "container") return;
-    if (!checkContainer(item, container, { count, weightIn, options })) return false;
+    const retry = (mod) => {
+      const data2 = item.toObject();
+      delete data2._id;
+      return actor.createEmbeddedDocuments("Item", [data2], mod);
+    };
+    if (!checkContainer(item, container, { count, weightIn, options, retry })) return false;
     return;
   }
   if (!slotsApplyTo(actor)) return;
   const check = checkSlot(actor, item, options);
   if (check.ok) {
     if (item.type === "container" && options.keepId && item.id && check.slot === "backpack") {
-      pendingState(options).containers.push({ id: item.id, name: item.name });
+      pendingState(options).containers.push({ id: item.id, name: item.name, ammo: ammoContainerOf(item), waterskin: isWaterskin(item) });
     }
     return;
   }
@@ -6579,7 +7690,7 @@ function onPreCreateItem(item, data, options) {
     const target = findStowTarget(actor, item, options, pending);
     if (target) {
       item.updateSource({ "system.container": target.id });
-      if (target.documentName === "Item") pending.additions.push({ containerId: target.id, count, weightIn });
+      if (target.documentName === "Item") pending.additions.push({ containerId: target.id, count, weightIn, item });
       queueStowNotice(actor.name, item.name, target.name, options[MODULE_ID]?.notifyUser, `${logName(item)} \u2192 ${logName(target)}`);
       return;
     }
@@ -6591,10 +7702,10 @@ function onPreUpdateItem(item, changes, options) {
   if (shouldSkip(item, options)) return;
   const actor = item.parent;
   const expanded = foundry.utils.expandObject(changes);
-  const { hasProperty, getProperty } = foundry.utils;
-  const containerChanged = hasProperty(expanded, "system.container");
-  const quantityChanged = hasProperty(expanded, "system.quantity");
-  const weightChanged = hasProperty(expanded, "system.weight");
+  const { hasProperty: hasProperty3, getProperty } = foundry.utils;
+  const containerChanged = hasProperty3(expanded, "system.container");
+  const quantityChanged = hasProperty3(expanded, "system.quantity");
+  const weightChanged = hasProperty3(expanded, "system.weight");
   if (!containerChanged && !quantityChanged && !weightChanged) return;
   const sys = item.system;
   const isContainer = item.type === "container";
@@ -6611,13 +7722,13 @@ function onPreUpdateItem(item, changes, options) {
     return quantity > oldQuantity || newWeight > oldWeight + 1e-9;
   };
   if (containerId) {
-    if (!getSetting("enforceCapacity")) return;
     const container = actor.items.get(containerId);
     if (container?.type !== "container" || container.id === item.id) return;
     if (!containerChanged && !grows()) return;
     const count = isContainer ? 1 + contentsCount(item) : quantity;
-    const weightIn = isContainer ? (units) => convertWeight(weightValue, weightUnits, units) + (sys.properties?.has?.("weightlessContents") ? 0 : contentsWeight(item, units)) : (units) => convertWeight(weightValue * quantity, weightUnits, units);
-    if (!checkContainer(item, container, { count, weightIn, excludeId: item.id, options })) return false;
+    const weightIn = isContainer ? (units) => convertWeight(weightValue, weightUnits, units) + (hasWeightlessContents(item) ? 0 : contentsWeight(item, units)) : (units) => convertWeight(weightValue * quantity, weightUnits, units);
+    const retry = (mod) => item.update(changes, mod);
+    if (!checkContainer(item, container, { count, weightIn, excludeId: item.id, options, retry })) return false;
     return;
   }
   if (!slotsApplyTo(actor)) return;
@@ -6637,6 +7748,15 @@ function onPreUpdateItem(item, changes, options) {
 function onCreateItem(item, options, userId) {
   handleTear(item, options, userId);
 }
+function guardCoins(item, changes, options) {
+  if (shouldSkip(item, options) || !refusesCoins(item)) return;
+  const currency = foundry.utils.expandObject(changes)?.system?.currency;
+  if (!currency || typeof currency !== "object") return;
+  const more = Object.entries(currency).some(([d, n]) => (Number(n) || 0) > (Number(item._source.system?.currency?.[d]) || 0));
+  if (!more) return;
+  notify(options, "warn", loc("Notify.NoCoinsInto", { container: item.name }));
+  return false;
+}
 function onUpdateItem(item, changes, options, userId) {
   handleTear(item, options, userId);
 }
@@ -6644,8 +7764,96 @@ Hooks.once("init", () => {
   Hooks.on("preCreateItem", onPreCreateItem);
   Hooks.on("preUpdateItem", guardSlotOverride);
   Hooks.on("preUpdateItem", onPreUpdateItem);
+  Hooks.on("preUpdateItem", guardCoins);
   Hooks.on("createItem", onCreateItem);
   Hooks.on("updateItem", onUpdateItem);
+});
+
+// src/feature/ammo-containers.ts
+var AMMO_PACK_NAME = "pack-and-ledger-containers";
+var PACK_LABEL = "PACK_LEDGER.AmmoContainers.Pack";
+var CONTAINERS = [
+  { holds: "needleCase", img: "icons/containers/bags/case-simple-brown.webp", count: 50, weight: 0.5, price: 5, denomination: "sp" },
+  { holds: "slingPouch", img: "icons/containers/bags/pouch-simple-brown.webp", count: 20, weight: 1, price: 5, denomination: "sp" },
+  { holds: "ammoPouch", img: "icons/containers/bags/pouch-leather-simple-tan.webp", count: 10, weight: 1, price: 5, denomination: "sp" },
+  { holds: "dartCase", img: "icons/containers/bags/case-leather-tan.webp", count: 10, weight: 1, price: 1, denomination: "gp" },
+  { holds: "javelinQuiver", img: "icons/containers/ammunition/quiver-simple-brown.webp", count: 5, weight: 2, price: 2, denomination: "gp" },
+  { holds: "knifeSheath", img: "icons/containers/bags/case-simple-leather-brown.webp", count: 6, weight: 1, price: 1, denomination: "gp" }
+];
+function texts(holds) {
+  return {
+    name: loc(`AmmoContainers.Items.${holds}.Name`),
+    description: `<p>${loc(`AmmoContainers.Items.${holds}.Description`)}</p>`
+  };
+}
+function containerData(c) {
+  const { name, description } = texts(c.holds);
+  return {
+    name,
+    type: "container",
+    img: c.img,
+    system: {
+      identifier: c.holds.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`),
+      description: { value: description },
+      capacity: { count: c.count, weight: { value: 0, units: "lb" } },
+      weight: { value: c.weight, units: "lb" },
+      price: { value: c.price, denomination: c.denomination }
+    },
+    flags: { [MODULE_ID]: { holds: c.holds, autoName: name, autoDescription: description } }
+  };
+}
+function translation(data) {
+  const flags2 = data?.flags?.[MODULE_ID] ?? {};
+  if (!CONTAINERS.some((c) => c.holds === flags2.holds)) return null;
+  const { name, description } = texts(flags2.holds);
+  const changes = {};
+  if (flags2.autoName === data.name && data.name !== name) {
+    changes.name = name;
+    changes[`flags.${MODULE_ID}.autoName`] = name;
+  }
+  const current = data.system?.description?.value ?? "";
+  if (flags2.autoDescription === current && current !== description) {
+    changes["system.description.value"] = description;
+    changes[`flags.${MODULE_ID}.autoDescription`] = description;
+  }
+  return Object.keys(changes).length ? changes : null;
+}
+var ammoPack = () => game.packs.get(`world.${AMMO_PACK_NAME}`) ?? null;
+async function createPack() {
+  const Compendium = foundry.documents.collections.CompendiumCollection;
+  const pack = await Compendium.createCompendium({ label: PACK_LABEL, name: AMMO_PACK_NAME, type: "Item" });
+  await placeInFolder(pack, { fresh: true });
+  return pack;
+}
+var running = null;
+function ensureAmmoContainerPack() {
+  if (!game.user.isGM || game.users.activeGM !== game.user) return Promise.resolve();
+  running ??= (async () => {
+    const pack = ammoPack() ?? await createPack();
+    const documents = await pack.getDocuments();
+    const present = new Set(documents.map((d) => d.getFlag(MODULE_ID, "holds")));
+    const missing = CONTAINERS.filter((c) => !present.has(c.holds));
+    if (missing.length) await Item.implementation.createDocuments(missing.map(containerData), { pack: pack.collection });
+    const updates = documents.map((d) => {
+      const changes = translation(d.toObject());
+      return changes ? { _id: d.id, ...changes } : null;
+    }).filter((u) => u);
+    if (updates.length) await Item.implementation.updateDocuments(updates, { pack: pack.collection });
+  })().catch((err) => logError("Could not provide the ammunition containers", err)).finally(() => {
+    running = null;
+  });
+  return running;
+}
+function onPreCreateItem2(item) {
+  if (item.pack) return;
+  const changes = translation(item._source);
+  if (changes) item.updateSource(foundry.utils.expandObject(changes));
+}
+Hooks.once("init", () => {
+  Hooks.on("preCreateItem", onPreCreateItem2);
+});
+Hooks.once("ready", () => {
+  ensureAmmoContainerPack();
 });
 
 // src/feature/piles/secrets.ts
@@ -6838,11 +8046,11 @@ function hasKey(token, actor) {
   const lock = pileLock(token);
   return !!actor && !!lock?.key && actor.items.some((i) => isKeyFor(lock, i.name));
 }
-var queue3 = Promise.resolve();
+var queue4 = Promise.resolve();
 function serial3(handler) {
   return (data, senderId) => {
-    queue3 = queue3.then(() => handler(data, senderId)).catch((err) => logError(`Pile request failed`, err));
-    return queue3;
+    queue4 = queue4.then(() => handler(data, senderId)).catch((err) => logError(`Pile request failed`, err));
+    return queue4;
   };
 }
 function registerPileSecretHooks() {
@@ -6974,6 +8182,8 @@ function getPileAppClass() {
         take: PileApp.#onTake,
         takeAll: PileApp.#onTakeAll,
         takeCoins: PileApp.#onTakeCoins,
+        splitCoins: PileApp.#onSplitCoins,
+        fundCoins: PileApp.#onFundCoins,
         dropCoins: PileApp.#onDropCoins,
         dropCoinsInto: PileApp.#onDropCoinsInto,
         useKey: PileApp.#onUseKey,
@@ -7215,7 +8425,12 @@ function getPileAppClass() {
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = coinsLabel(coins);
-      row.append(img, name, button({ action: "takeCoins", icon: "fa-solid fa-hand", tooltip: loc("Pile.TakeCoins") }));
+      const group = partyMembers().length > 1;
+      const mode = fundMode();
+      const split = group ? [button({ action: "splitCoins", icon: "fa-solid fa-scale-balanced", tooltip: loc("Pile.Split.Button") })] : [];
+      const fund = group && mode === "button" ? [button({ action: "fundCoins", icon: "fa-solid fa-piggy-bank", tooltip: loc("Pile.FundCoins") })] : [];
+      const take = group && mode === "always" ? loc("Pile.TakeCoinsFund") : loc("Pile.TakeCoins");
+      row.append(img, name, ...split, ...fund, button({ action: "takeCoins", icon: "fa-solid fa-hand", tooltip: take }));
       return row;
     }
     /** Whether the current taker could put coins somewhere. */
@@ -7249,7 +8464,7 @@ function getPileAppClass() {
       const unit = Number(item.system?.weight?.value) || 0;
       if (unit) weight.textContent = `${round3(unit * quantity)} ${weightUnitsLabel(item.system.weight.units)}`;
       row.append(img, name, qty, weight);
-      if (item.type === "container" && this.#takerHasCoins) {
+      if (item.type === "container" && !refusesCoins(item) && this.#takerHasCoins) {
         row.append(button({
           action: "dropCoinsInto",
           icon: "fa-solid fa-coins",
@@ -7311,6 +8526,14 @@ function getPileAppClass() {
       const containerId = target.closest("[data-container-id]")?.dataset.containerId ?? null;
       requestTake(this.token, { coins: true, containerId });
     }
+    static #onSplitCoins(event, target) {
+      const containerId = target.closest("[data-container-id]")?.dataset.containerId ?? null;
+      requestSplitCoins(this.token, { containerId });
+    }
+    static #onFundCoins(event, target) {
+      const containerId = target.closest("[data-container-id]")?.dataset.containerId ?? null;
+      requestTake(this.token, { coins: true, containerId, fund: true });
+    }
     static #onDropCoinsInto(event, target) {
       const taker = resolveTaker();
       const containerId = target.closest("[data-item-id]")?.dataset.itemId;
@@ -7341,6 +8564,17 @@ function getPileAppClass() {
   return PileAppClass;
 }
 function openPileApp(token) {
+  if (!game.user.isGM && !apps.get(token.uuid)?.rendered) {
+    const taker = resolveTaker();
+    if (!taker) {
+      ui.notifications.warn(loc("Notify.NoOpenActor"));
+      return null;
+    }
+    if (!canReach(token, taker)) {
+      ui.notifications.warn(loc("Notify.OutOfRangeOpen", { actor: taker.name }));
+      return null;
+    }
+  }
   let app = apps.get(token.uuid);
   if (!app) {
     const PileApp = getPileAppClass();
@@ -7360,6 +8594,18 @@ function refreshPileApps(token) {
     for (const app of pendingRenders) if (app.rendered) app.render();
     pendingRenders.clear();
   }, 50);
+}
+function closeOutOfReach() {
+  if (game.user.isGM) return;
+  for (const app of apps.values()) {
+    if (!app.rendered) continue;
+    const token = app.token;
+    if (!token?.parent || token.parent !== canvas.scene) continue;
+    const taker = resolveTaker();
+    if (taker && canReach(token, taker)) continue;
+    app.close();
+    ui.notifications.info(loc("Notify.PileClosedOutOfRange", { actor: taker?.name ?? game.user.name, pile: token.name }));
+  }
 }
 function closePileApp(token) {
   apps.get(token.uuid)?.close();
@@ -7468,7 +8714,10 @@ function registerPileHooks() {
   Hooks.on("createItem", refreshItem);
   Hooks.on("updateItem", refreshItem);
   Hooks.on("deleteItem", refreshItem);
-  Hooks.on("updateToken", (token) => isPileToken(token) && refreshPileApps(token));
+  Hooks.on("updateToken", (token, changes) => {
+    if (isPileToken(token)) refreshPileApps(token);
+    if ("x" in changes || "y" in changes) closeOutOfReach();
+  });
   Hooks.on("updateActor", (actor, changes) => {
     if (!foundry.utils.hasProperty(changes, "system.currency")) return;
     if (isPile(actor)) return actor.token && refreshPileApps(actor.token);
@@ -7482,95 +8731,8 @@ function registerPileHooks() {
   });
 }
 
-// src/feature/currency/audit.ts
-var BATCH_DELAY = 2e3;
-var auditActive = () => !!getSetting("currencyAudit");
-function logModuleCoins(source, actor, user, before, note) {
-  if (!auditActive()) return;
-  const after = coinsOf(actor);
-  const delta = difference(before, after);
-  if (isZero(delta)) return;
-  addCoinEntry({ user: user?.name ?? "", actor: actor.name, actorId: actor.id, source, delta, before, after, note });
-}
-var known = /* @__PURE__ */ new Map();
-function remember2(actor) {
-  if (actor?.system?.currency && !actor.isToken) known.set(actor.id, coinsOf(actor));
-}
-var recent = /* @__PURE__ */ new Map();
-function countChange(userId, actorId) {
-  const limit = Number(getSetting("currencySuspiciousCount")) || 0;
-  if (limit < 2) return 0;
-  const window2 = Math.max(0, Number(getSetting("currencySuspiciousSeconds")) || 0) * 1e3;
-  const now = Date.now();
-  const key = `${userId}.${actorId}`;
-  const times = (recent.get(key) ?? []).filter((t) => now - t <= window2);
-  times.push(now);
-  recent.set(key, times);
-  return times.length >= limit ? times.length : 0;
-}
-var batches = /* @__PURE__ */ new Map();
-function queueReason(user, actor, delta, id) {
-  const key = `${user.id}.${actor.id}`;
-  const batch = batches.get(key) ?? { user, actor, delta: emptyCoins(), ids: [], timer: null };
-  batch.ids.push(id);
-  batch.delta = add(batch.delta, delta);
-  clearTimeout(batch.timer);
-  batch.timer = setTimeout(() => {
-    batches.delete(key);
-    if (!isZero(batch.delta)) askReason(batch).catch((err) => logError("Could not ask for the reason of a coin change", err));
-  }, BATCH_DELAY);
-  batches.set(key, batch);
-}
-async function askReason({ user, actor, delta, ids }) {
-  const reason = await foundry.applications.api.DialogV2.prompt({
-    window: { title: loc("Coins.Reason.Title", { actor: actor.name }), icon: "fa-solid fa-coins" },
-    content: `<p>${esc(loc("Coins.Reason.Hint", { user: user.name, actor: actor.name, change: coinsText(delta, { signed: true }) }))}</p>
-      <textarea name="reason" rows="3" placeholder="${esc(loc("Coins.Reason.Placeholder"))}"></textarea>`,
-    ok: {
-      label: loc("Coins.Reason.Save"),
-      icon: "fa-solid fa-floppy-disk",
-      callback: (event, button2) => String(button2.form.elements.reason.value ?? "").trim()
-    },
-    rejectClose: false
-  });
-  if (!reason) return;
-  for (const id of ids) setCoinReason(id, reason.slice(0, 1e3));
-}
-function onUpdateActor(actor, changes, options, userId) {
-  if (!foundry.utils.hasProperty(changes, "system.currency")) return;
-  const before = known.get(actor.id);
-  remember2(actor);
-  if (game.user !== game.users.activeGM || !before || !auditActive() || !isPlayerActor(actor)) return;
-  const meta = options?.[MODULE_ID];
-  if (meta && meta.currency?.source !== "input") return;
-  const after = coinsOf(actor);
-  const delta = difference(before, after);
-  const user = game.users.get(userId);
-  if (isZero(delta) || !user) return;
-  if (user.isGM && !getSetting("currencyAuditGM")) return;
-  const flagged = user.isGM ? 0 : countChange(user.id, actor.id);
-  const id = addCoinEntry({
-    user: user.name,
-    actor: actor.name,
-    actorId: actor.id,
-    source: user.isGM ? "gm" : "player",
-    delta,
-    before,
-    after,
-    converted: !!meta?.currency?.converted,
-    flagged: flagged ? loc("Coins.Log.Suspicious", { count: flagged, seconds: getSetting("currencySuspiciousSeconds") }) : ""
-  });
-  if (!user.isGM && getSetting("currencyAskReason")) queueReason(user, actor, delta, id);
-}
-Hooks.once("ready", () => {
-  for (const actor of game.actors) remember2(actor);
-  Hooks.on("createActor", remember2);
-  Hooks.on("deleteActor", (actor) => known.delete(actor.id));
-  Hooks.on("updateActor", onUpdateActor);
-});
-
 // src/feature/piles/gm-requests.ts
-var queue4 = Promise.resolve();
+var queue5 = Promise.resolve();
 var REQUEST_TIMEOUT = 2e4;
 function withTimeout(promise, type) {
   let timer;
@@ -7581,12 +8743,12 @@ function withTimeout(promise, type) {
 }
 function serial4(handler) {
   return (data, senderId) => {
-    queue4 = queue4.then(() => withTimeout(Promise.resolve().then(() => handler(data, senderId)), data?.type)).catch((err) => {
+    queue5 = queue5.then(() => withTimeout(Promise.resolve().then(() => handler(data, senderId)), data?.type)).catch((err) => {
       logError(`Item pile request failed (${data?.type})`, data, err);
       const userId = senderId ?? data?.userId;
       if (userId) notifyUser(userId, "error", loc("Notify.RequestFailed", { error: err?.message ?? String(err) }));
     });
-    return queue4;
+    return queue5;
   };
 }
 async function ownedActor(uuid, user) {
@@ -7629,6 +8791,7 @@ async function executeTake(data, senderId) {
   const taken = [];
   const logged = [];
   let coinsBefore = null;
+  let intoFund = false;
   for (const id of ids) {
     const item = pile.items.get(id);
     if (!isPhysicalData(item)) continue;
@@ -7645,13 +8808,17 @@ async function executeTake(data, senderId) {
       coinsBefore = coinsOf2(actor);
       await changeCoins(actor, coins, 1);
       await changeCoins(holder, coins, -1);
-      taken.push(coinsLabel(coins));
+      if (takesIntoFund(actor, data.fund === true)) {
+        await addToFund(actor, coins);
+        intoFund = true;
+        taken.push(loc("Fund.Taken", { coins: coinsLabel(coins) }));
+      } else taken.push(coinsLabel(coins));
     }
   }
   if (!taken.length) return coinsOnly ? notifyUser(user.id, "warn", loc("Notify.NoCoinsHere")) : void 0;
   await afterPileChange(token);
   if (logged.length) logChange("pickup", { actor: actor.name, data: { item: logged.join(", ") }, items: logged }, user);
-  if (coinsBefore) logModuleCoins("pileTake", actor, user, coinsBefore, token.name);
+  if (coinsBefore) logModuleCoins(intoFund ? "pileFund" : "pileTake", actor, user, coinsBefore, token.name);
   notifyUser(user.id, "info", loc("Notify.PickedUp", { actor: actor.name, item: taken.join(", ") }));
 }
 async function executeDrop(data, senderId) {
@@ -7734,6 +8901,7 @@ async function executeDropCoins(data, senderId) {
   if (!hasCoins(amounts2)) return notifyUser(user.id, "warn", loc("Notify.NoCoins", { actor: actor.name }));
   const container = target && data.containerId ? target.actor.items.get(data.containerId) : null;
   if (data.containerId && container?.type !== "container") return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  if (container && refusesCoins(container)) return notifyUser(user.id, "warn", loc("Notify.NoCoinsInto", { container: container.name }));
   const coinsBefore = coinsOf2(actor);
   await changeCoins(actor, amounts2, -1);
   try {
@@ -7757,7 +8925,47 @@ async function executeDropCoins(data, senderId) {
   }
   logModuleCoins("pileDrop", actor, user, coinsBefore, target?.name ?? "");
 }
+async function executeSplitCoins(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const actor = await ownedActor(data.actorUuid, user);
+  if (!actor) return notifyUser(user.id, "warn", loc("Notify.NoPickupActor"));
+  const token = game.scenes.get(data.sceneId)?.tokens.get(data.tokenId);
+  if (!isPileToken(token)) return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  if (!user.isGM && !withinRange(token.parent, actor, pileCenter(token), token.width)) {
+    return notifyUser(user.id, "warn", loc("Notify.OutOfRange", { actor: actor.name }));
+  }
+  const blocked = blockedFor(user, token);
+  if (blocked) return notifyUser(user.id, "warn", loc(blocked));
+  const members = partyMembers();
+  if (!members.includes(actor)) return notifyUser(user.id, "warn", loc("Notify.SplitNotMember", { actor: actor.name }));
+  const agreed = Array.isArray(data.memberIds) ? [...data.memberIds].sort().join() : "";
+  if (agreed !== members.map((m) => m.id).sort().join()) return notifyUser(user.id, "warn", loc("Notify.SplitChanged"));
+  const holder = data.containerId ? token.actor.items.get(data.containerId) : token.actor;
+  if (data.containerId && holder?.type !== "container") return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
+  const coins = coinsOf2(holder);
+  if (!hasCoins(coins)) return notifyUser(user.id, "warn", loc("Notify.NoCoinsHere"));
+  const { share, rest } = splitCoins(coins, members.length);
+  await changeCoins(holder, coins, -1);
+  for (const member of members) {
+    const amounts2 = member === actor ? Object.fromEntries(COINS.map((d) => [d, share[d] + rest[d]])) : share;
+    if (!hasCoins(amounts2)) continue;
+    const before = coinsOf2(member);
+    await changeCoins(member, amounts2, 1);
+    logModuleCoins("pileSplit", member, user, before, token.name);
+    if (member !== actor) await announceShare(member, amounts2, { by: actor, from: token.name, skip: user.id });
+  }
+  await afterPileChange(token);
+  notifyUser(user.id, "info", loc(hasCoins(rest) ? "Notify.SplitDoneRest" : "Notify.SplitDone", {
+    coins: coinsLabel(coins),
+    count: members.length,
+    share: coinsLabel(share) || loc("Pile.Split.Nothing"),
+    actor: actor.name,
+    rest: coinsLabel(rest)
+  }));
+}
 registerHandler("pileTake", serial4(executeTake));
+registerHandler("pileSplitCoins", serial4(executeSplitCoins));
 registerHandler("pileDrop", serial4(executeDrop));
 registerHandler("pileDropCoins", serial4(executeDropCoins));
 
@@ -8072,13 +9280,13 @@ function tradeLines(giver, receiver, entries, currency) {
     ...entries.map((e) => itemLabel(logName(e.item), e.item.type === "container" ? 1 : e.quantity))
   ].map((text3) => `${giver.name} \u2192 ${receiver.name}: ${text3}`);
 }
-var queue5 = Promise.resolve();
+var queue6 = Promise.resolve();
 function executeTrade(session) {
   session.executing = true;
-  queue5 = queue5.then(() => performTrade(session)).catch((err) => logError(`Trade failed`, err)).finally(() => {
+  queue6 = queue6.then(() => performTrade(session)).catch((err) => logError(`Trade failed`, err)).finally(() => {
     session.executing = false;
   });
-  return queue5;
+  return queue6;
 }
 async function performTrade(session) {
   const a = await fromUuid(session.a.actorUuid);
@@ -8292,7 +9500,7 @@ function getTradeAppClass() {
         this.#offerItem(item);
       });
       for (const input of this.element.querySelectorAll("input.trade-coin")) {
-        input.addEventListener("change", () => this.#sendOffer());
+        input.addEventListener("change", () => this.#offerCoins());
       }
     }
     _onClose(options) {
@@ -8365,12 +9573,12 @@ function getTradeAppClass() {
     }
     /** A picker for the user's own items, as an alternative to dragging them in. */
     #buildAddSelect(data) {
-      const select = document.createElement("select");
-      select.className = "trade-add";
+      const select2 = document.createElement("select");
+      select2.className = "trade-add";
       const placeholder = document.createElement("option");
       placeholder.value = "";
       placeholder.textContent = loc("Trade.AddItem");
-      select.append(placeholder);
+      select2.append(placeholder);
       const offered = new Set(data.items.map((i) => i.id));
       const items = (this.actor?.items.contents ?? []).filter((i) => isTradeable(i) && !offered.has(i.id)).sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
       for (const item of items) {
@@ -8378,10 +9586,10 @@ function getTradeAppClass() {
         option.value = item.id;
         const quantity = item.type === "container" ? 1 : Math.floor(Number(item.system?.quantity) || 1);
         option.textContent = quantity > 1 ? `${item.name} \xD7${quantity}` : item.name;
-        select.append(option);
+        select2.append(option);
       }
-      select.disabled = !items.length;
-      return select;
+      select2.disabled = !items.length;
+      return select2;
     }
     #buildCurrency(data, own) {
       const box = document.createElement("div");
@@ -8442,6 +9650,17 @@ function getTradeAppClass() {
         currency[input.name] = Math.max(0, Math.floor(Number(input.value) || 0));
       }
       return currency;
+    }
+    /** Coins changed: offering coins assigned to an account of the group fund is asked about first. */
+    async #offerCoins() {
+      const currency = this.#currentCurrency();
+      if (this.actor && !await confirmFundGive(this.actor, currency)) {
+        for (const input of this.element?.querySelectorAll("input.trade-coin") ?? []) {
+          input.value = String(this.mine.currency[input.name] ?? 0);
+        }
+        return;
+      }
+      this.#sendOffer();
     }
     #sendOffer(items = this.#currentItems()) {
       sendOffer(this.tradeId, this.side, items, this.#currentCurrency());
@@ -8712,6 +9931,10 @@ function invoiceHtml(actor, sender, note, lines, total) {
         <tfoot><tr><th>${esc(loc("Invoice.Total"))}</th><th>${esc(coinsText(total))}</th></tr></tfoot>
       </table>
       <p>${esc(loc("Invoice.Query.Purse", { coins: coinsText(coinsOf(actor)) }))}</p>
+      ${(() => {
+    const after = pay(coinsOf(actor), total);
+    return after ? fundSpendHtml(actor, after) : "";
+  })()}
     </div>`;
 }
 async function sendInvoice(draft) {

@@ -1,4 +1,5 @@
 import { MODULE_ID } from "../../core/constants.js";
+import { fundSpendHtml } from "../../ui/fund-warning.js";
 import { getSetting } from "../../core/settings/base-settings.js";
 import { showNotification } from "../../core/socket.js";
 import { logError } from "../../debug/logger.js";
@@ -154,6 +155,7 @@ function invoiceHtml(actor: any, sender: any, note: string, lines: PricedLine[],
         <tfoot><tr><th>${esc(loc("Invoice.Total"))}</th><th>${esc(coinsText(total))}</th></tr></tfoot>
       </table>
       <p>${esc(loc("Invoice.Query.Purse", { coins: coinsText(coinsOf(actor)) }))}</p>
+      ${(() => { const after = pay(coinsOf(actor), total); return after ? fundSpendHtml(actor, after) : ""; })()}
     </div>`;
 }
 

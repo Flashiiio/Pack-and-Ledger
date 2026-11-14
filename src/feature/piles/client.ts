@@ -1,5 +1,5 @@
 import { blockedByStore } from "../provisions/store-lock.js";
-import { COINS, coinsOf, hasCoins, isLocked, isPile, isPileToken } from "../../core/policy/pile-rules.js";
+import { COINS, coinsLabel, coinsOf, hasCoins, isLocked, isPile, isPileToken } from "../../core/policy/pile-rules.js";
 import { pileCenter, withinRange } from "./geometry.js";
 import { loc } from "../../ui/helpers.js";
 import { requestGM } from "../../core/socket.js";
@@ -7,6 +7,9 @@ import { PILE_SIZE } from "./pile-tokens.js";
 import { stackQuantity } from "./pile-items.js";
 import { isBodyPart } from "../../core/policy/slots.js";
 import { PHYSICAL_TYPES } from "../../core/constants.js";
+import { partyMembers } from "../provisions/provisions.js";
+import { splitCoins } from "../currency/coins.js";
+import { confirmFundGive } from "../../ui/fund-warning.js";
 
 /* -------------------------------------------- */
 /*  Client: Requests                             */
@@ -33,25 +36,66 @@ export function canReach(token: any, actor?: any) {
  * @param {Actor} [options.actor]            Receiving actor; defaults to the current taker.
  * @param {boolean} [options.coins]          Take only the coins.
  * @param {string} [options.containerId]     With coins: take those of this container in the pile instead.
+ * @param {boolean} [options.fund]           With coins: into the group fund.
  */
-export function requestTake(token?: any, { itemIds=null, quantity, actor, coins=false, containerId=null }: any={}) {
+export function requestTake(token?: any, { itemIds=null, quantity, actor, coins=false, containerId=null, fund=false }: any={}) {
   if ( !game.users.activeGM ) return ui.notifications.warn(loc("Notify.NoGM"));
   actor ??= resolveTaker();
   if ( !actor ) return ui.notifications.warn(loc("Notify.NoPickupActor"));
   if ( !canReach(token, actor) ) return ui.notifications.warn(loc("Notify.OutOfRange", { actor: actor.name }));
   if ( !game.user.isGM && isLocked(token) ) return ui.notifications.warn(loc("Notify.PileLocked"));
   requestGM({
-    type: "pileTake", sceneId: token.parent.id, tokenId: token.id, itemIds, quantity, coins, containerId,
+    type: "pileTake", sceneId: token.parent.id, tokenId: token.id, itemIds, quantity, coins, containerId, fund,
     actorUuid: actor.uuid, userId: game.user.id
   });
 }
+
+
+/**
+ * Share the coins of a pile (or of a container lying in it) equally among the group; what cannot be shared equally
+ * goes to the character who shares them out. Shows who gets what and asks first.
+ * @param {TokenDocument} token
+ * @param {object} [options]
+ * @param {string} [options.containerId]  The coins of this container in the pile instead of the loose ones.
+ */
+export async function requestSplitCoins(token?: any, { containerId=null }: any={}) {
+  if ( !game.users.activeGM ) return ui.notifications.warn(loc("Notify.NoGM"));
+  const actor = resolveTaker();
+  if ( !actor ) return ui.notifications.warn(loc("Notify.NoPickupActor"));
+  if ( !canReach(token, actor) ) return ui.notifications.warn(loc("Notify.OutOfRange", { actor: actor.name }));
+  if ( !game.user.isGM && isLocked(token) ) return ui.notifications.warn(loc("Notify.PileLocked"));
+  const members = partyMembers();
+  if ( !members.includes(actor) ) return ui.notifications.warn(loc("Notify.SplitNotMember", { actor: actor.name }));
+  const holder = containerId ? token.actor?.items.get(containerId) : token.actor;
+  const coins = coinsOf(holder);
+  if ( !hasCoins(coins) ) return ui.notifications.warn(loc("Notify.NoCoinsHere"));
+
+  const { share, rest } = splitCoins(coins, members.length);
+  const esc = (value?: any) => foundry.utils.escapeHTML(String(value ?? ""));
+  const nothing = loc("Pile.Split.Nothing");
+  const content = `<p>${esc(loc("Pile.Split.Intro", { coins: coinsLabel(coins), count: members.length }))}</p>
+    <ul>${members.map((m: any) => `<li>${esc(m.name)}: ${esc(coinsLabel(m === actor ? addCoins(share, rest) : share) || nothing)}</li>`).join("")}</ul>
+    ${hasCoins(rest) ? `<p>${esc(loc("Pile.Split.Rest", { actor: actor.name, coins: coinsLabel(rest) }))}</p>` : ""}`;
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Pile.Split.Title"), icon: "fa-solid fa-scale-balanced" },
+    content,
+    rejectClose: false
+  });
+  if ( !yes ) return;
+  requestGM({
+    type: "pileSplitCoins", sceneId: token.parent.id, tokenId: token.id, containerId,
+    actorUuid: actor.uuid, memberIds: members.map((m: any) => m.id), userId: game.user.id
+  });
+}
+
+const addCoins = (a: any, b: any) => Object.fromEntries(COINS.map(d => [d, (a[d] ?? 0) + (b[d] ?? 0)]));
 
 /**
  * Ask how many coins to put down. Resolves to the amounts per denomination, or null when cancelled.
  * @param {Actor} actor
  */
 export async function promptCoins(actor?: any) {
-  const own = coinsOf(actor);
+  const own: any = coinsOf(actor);
   const available = COINS.filter(d => own[d] > 0);
   if ( !available.length ) {
     ui.notifications.warn(loc("Notify.NoCoins", { actor: actor.name }));
@@ -96,6 +140,8 @@ export async function promptCoins(actor?: any) {
     ui.notifications.warn(loc("Notify.NoCoinsChosen"));
     return null;
   }
+  // Coins assigned to an account of the group fund: asked about first.
+  if ( !(await confirmFundGive(actor, amounts)) ) return null;
   return amounts;
 }
 

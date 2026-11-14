@@ -8,6 +8,8 @@ import { logChange } from "./activity-log.js";
 import { contentsCount, contentsWeight, convertWeight, defaultWeightUnits, findOverflow, itemCount, itemWeightIn } from "../core/policy/capacity.js";
 import { requestTear } from "./container-tear.js";
 import { guardSlotOverride } from "../ui/actor-sheet.js";
+import { ammoContainerOf, ammoContainerRule, hasWeightlessContents, refusesCoins } from "../core/policy/ammo-containers.js";
+import { isWaterskin } from "../core/policy/waterskins.js";
 
 const round = (n?: any) => Math.round(n * 10) / 10;
 
@@ -22,6 +24,7 @@ const round = (n?: any) => Math.round(n * 10) / 10;
  * - notifyUser: id of the user who should receive notifications instead of the executing client
  * - pending:    additions already accepted earlier in the same batch
  * - tear:       tear decided during the pre-hook, executed in the post-hook
+ * - overfillConfirmed: the user agreed to overfill a container (and risk a tear); the operation is a repeat
  */
 function moduleOptions(options?: any) {
   return options[MODULE_ID] ??= {};
@@ -54,8 +57,22 @@ function notify(options: any, level: any, message?: any) {
 /*  Notifications                                */
 /* -------------------------------------------- */
 
-function notifyOverflow(item: any, { container, kind, value, max, units }: any, options?: any) {
+function notifyOverflow(item: any, overflow: any, options?: any) {
+  const { container, kind, value, max, units } = overflow;
   if ( kind === "torn" ) return notify(options, "warn", loc("Notify.TornContainer", { container: container.name }));
+  if ( kind === "content" ) {
+    return notify(options, "warn", loc("Notify.WrongContent", {
+      item: item.name, container: container.name, holds: loc(`AmmoContainers.Holds.${overflow.holds}`)
+    }));
+  }
+  if ( kind === "wornOnly" ) return notify(options, "warn", loc("Notify.AmmoContainerWorn", { item: item.name, container: container.name }));
+  if ( kind === "ammoOnly" ) return notify(options, "warn", loc("Notify.AmmoOnly", { item: item.name, container: container.name }));
+  if ( kind === "waterOnly" ) return notify(options, "warn", loc("Notify.WaterOnly", { item: item.name, container: container.name }));
+  if ( kind === "compartment" ) {
+    return notify(options, "warn", loc("Notify.CompartmentFull", {
+      item: item.name, container: container.name, value, max, what: loc(`AmmoContainers.Compartment.${overflow.compartment}`)
+    }));
+  }
   const key = kind === "count" ? "Notify.OverflowCount" : "Notify.OverflowWeight";
   notify(options, "warn", loc(key, {
     item: item.name, container: container.name, value: round(value), max: round(max), units
@@ -108,12 +125,40 @@ function queueStowNotice(actor: any, item: any, container: any, target?: any, lo
 /* -------------------------------------------- */
 
 /**
+ * Ask the user whether to overfill a container. The operation was stopped; on "yes" it is repeated, now confirmed.
+ * @param retry  Repeats the operation with the given module options.
+ */
+async function confirmOverfill(item: any, container: any, retry: (mod: any) => Promise<unknown>,
+  options?: any) {
+  const yes = await foundry.applications.api.DialogV2.confirm({
+    window: { title: loc("Overfill.Title"), icon: "fa-solid fa-triangle-exclamation" },
+    content: `<p>${foundry.utils.escapeHTML(loc("Overfill.Content", { item: item.name, container: container.name }))}</p>`,
+    rejectClose: false
+  });
+  if ( !yes ) return;
+  const strict = options?.[MODULE_ID]?.strict;
+  try {
+    await retry({ [MODULE_ID]: { overfillConfirmed: true, ...(strict ? { strict } : {}) } });
+  } catch(err) {
+    console.error(`${MODULE_ID} | Could not store "${item.name}" in "${container.name}"`, err);
+  }
+}
+
+/**
  * Decide what happens when a container would overflow. In "risk" mode the item is stored anyway and
  * the container may tear; the tear itself is executed after the database operation (see handleTear).
+ * A user storing something themselves is asked first (see confirmOverfill); for an operation run on someone else's
+ * behalf (trade, item piles) there is nobody to ask, so it goes on with a warning.
+ * @param retry  Repeats the operation once the user has agreed.
  * @returns {boolean}  Whether the operation may proceed.
  */
-function resolveOverflow(item: any, overflow: any, options?: any) {
-  if ( (overflow.kind === "torn") || (getSetting("overfillMode") !== "risk") ) {
+function resolveOverflow(item: any, overflow: any, options?: any, retry?: (mod: any) => Promise<unknown>) {
+  // A torn container holds nothing; an ammunition container holds only its ammunition, and is never overfilled (so it
+  // never tears either); arrows and bolts go only into a quiver or bolt case; a waterskin holds only water, and no more
+  // than fits.
+  const hard = ["torn", "content", "compartment", "ammoOnly", "wornOnly", "waterOnly"].includes(overflow.kind)
+    || !!ammoContainerRule(overflow.container) || isWaterskin(overflow.container);
+  if ( hard || (getSetting("overfillMode") !== "risk") ) {
     notifyOverflow(item, overflow, options);
     return false;
   }
@@ -122,26 +167,30 @@ function resolveOverflow(item: any, overflow: any, options?: any) {
   const percent = ((value - max) / max) * 100;
   const hardLimit = Math.max(0, Number(getSetting("overfillHardLimit")) || 0);
   if ( hardLimit && (percent > hardLimit) ) {
-    notify(options, "warn", loc("Notify.OverfillLimit", {
-      item: item.name, container: container.name, percent: round(percent), limit: hardLimit
-    }));
+    notify(options, "warn", loc("Notify.OverfillLimit", { item: item.name, container: container.name }));
     return false;
   }
 
   const factor = Math.max(0, Number(getSetting("tearChanceFactor")) || 0);
   const chance = Math.min(100, Math.max(0, percent * factor));
+  const mod = moduleOptions(options);
+  // Run on someone's behalf (a pile, a trade – also the GM's own, carried out right here) the operation cannot wait
+  // for an answer: asked and repeated later, the item would come twice.
+  const ownAction = !mod.notifyUser;
+  if ( retry && ownAction && !mod.overfillConfirmed ) {
+    confirmOverfill(item, container, retry, options);
+    return false;
+  }
   const actor = item.parent;
   const canTear = !!game.users.activeGM && (actor.getActiveTokens(false, true).length > 0);
 
   if ( canTear && ((Math.random() * 100) < chance) ) {
-    const mod = moduleOptions(options);
     mod.tear ??= { containerId: container.id, percent, chance, notifyUser: mod.notifyUser };
     return true;
   }
 
-  notify(options, "warn", loc("Notify.Overfilled", {
-    container: container.name, percent: round(percent), chance: round(chance)
-  }));
+  // The user who confirmed has just read the risk. Nobody is told how big it is.
+  if ( !mod.overfillConfirmed ) notify(options, "warn", loc("Notify.Overfilled", { container: container.name }));
   return true;
 }
 
@@ -149,11 +198,11 @@ function resolveOverflow(item: any, overflow: any, options?: any) {
  * Check a container for the addition and, if accepted, record it so later items of the same batch see it.
  * @returns {boolean}  Whether the operation may proceed.
  */
-function checkContainer(item: any, container: any, { count, weightIn, excludeId, options }: any) {
+function checkContainer(item: any, container: any, { count, weightIn, excludeId, options, retry }: any) {
   const pending = pendingState(options);
-  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending.additions });
-  if ( overflow && !resolveOverflow(item, overflow, options) ) return false;
-  pending.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn });
+  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending.additions, item });
+  if ( overflow && !resolveOverflow(item, overflow, options, retry) ) return false;
+  pending.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn, item });
   return true;
 }
 
@@ -180,10 +229,21 @@ function handleTear(item: any, options: any, userId?: any) {
 /* -------------------------------------------- */
 
 /**
+ * The contents of a Quiver of Ehlonna weigh nothing. dnd5e reckons the weight itself, so the container gets dnd5e's
+ * property for it when it is created.
+ */
+function markWeightlessContents(item: any, options?: any) {
+  if ( options?.[MODULE_ID]?.bypass || !ammoContainerRule(item)?.weightless ) return;
+  const properties = Array.from(item._source.system?.properties ?? []);
+  if ( !properties.includes("weightlessContents") ) item.updateSource({ "system.properties": [...properties, "weightlessContents"] });
+}
+
+/**
  * preCreateItem: enforce container capacity for items created inside a container,
  * and body-slot limits (with optional auto-stow) for items created at the top level.
  */
 export function onPreCreateItem(item: any, data: any, options?: any) {
+  markWeightlessContents(item, options);
   if ( shouldSkip(item, options) ) return;
   const actor = item.parent;
   const containerId = item.system.container;
@@ -191,10 +251,16 @@ export function onPreCreateItem(item: any, data: any, options?: any) {
   const weightIn = (units?: any) => itemWeightIn(item, units);
 
   if ( containerId ) {
-    if ( !getSetting("enforceCapacity") ) return;
+    // Without "Enforce container capacity", findOverflow still keeps the rules of the special containers.
     const container = actor.items.get(containerId);
     if ( container?.type !== "container" ) return; // Container is part of the same batch and does not exist yet.
-    if ( !checkContainer(item, container, { count, weightIn, options }) ) return false;
+    // Asked to overfill, the user's "yes" creates the item again.
+    const retry = (mod: any) => {
+      const data = item.toObject();
+      delete data._id;
+      return actor.createEmbeddedDocuments("Item", [data], mod);
+    };
+    if ( !checkContainer(item, container, { count, weightIn, options, retry }) ) return false;
     return;
   }
 
@@ -203,7 +269,7 @@ export function onPreCreateItem(item: any, data: any, options?: any) {
   if ( check.ok ) {
     // A backpack created in this batch (with a stable id) can receive later items of the same batch.
     if ( (item.type === "container") && options.keepId && item.id && (check.slot === "backpack") ) {
-      pendingState(options).containers.push({ id: item.id, name: item.name });
+      pendingState(options).containers.push({ id: item.id, name: item.name, ammo: ammoContainerOf(item), waterskin: isWaterskin(item) });
     }
     return;
   }
@@ -214,7 +280,7 @@ export function onPreCreateItem(item: any, data: any, options?: any) {
     const target = findStowTarget(actor, item, options, pending);
     if ( target ) {
       item.updateSource({ "system.container": target.id });
-      if ( target.documentName === "Item" ) pending.additions.push({ containerId: target.id, count, weightIn });
+      if ( target.documentName === "Item" ) pending.additions.push({ containerId: target.id, count, weightIn, item });
       queueStowNotice(actor.name, item.name, target.name, options[MODULE_ID]?.notifyUser, `${logName(item)} → ${logName(target)}`);
       return;
     }
@@ -255,7 +321,7 @@ export function onPreUpdateItem(item: any, changes: any, options?: any) {
   };
 
   if ( containerId ) {
-    if ( !getSetting("enforceCapacity") ) return;
+    // Without "Enforce container capacity", findOverflow still keeps the rules of the special containers.
     const container = actor.items.get(containerId);
     if ( (container?.type !== "container") || (container.id === item.id) ) return;
     if ( !containerChanged && !grows() ) return;
@@ -263,9 +329,10 @@ export function onPreUpdateItem(item: any, changes: any, options?: any) {
     const count = isContainer ? (1 + contentsCount(item)) : quantity;
     const weightIn = isContainer
       ? (units?: any) => convertWeight(weightValue, weightUnits, units)
-        + (sys.properties?.has?.("weightlessContents") ? 0 : contentsWeight(item, units))
+        + (hasWeightlessContents(item) ? 0 : contentsWeight(item, units))
       : (units?: any) => convertWeight(weightValue * quantity, weightUnits, units);
-    if ( !checkContainer(item, container, { count, weightIn, excludeId: item.id, options }) ) return false;
+    const retry = (mod: any) => item.update(changes, mod);
+    if ( !checkContainer(item, container, { count, weightIn, excludeId: item.id, options, retry }) ) return false;
     return;
   }
 
@@ -292,6 +359,17 @@ export function onCreateItem(item: any, options: any, userId?: any) {
   handleTear(item, options, userId);
 }
 
+/** preUpdateItem: no coins go into a waterskin or an ammunition container (more of them, that is: taking out is fine). */
+function guardCoins(item: any, changes: any, options?: any) {
+  if ( shouldSkip(item, options) || !refusesCoins(item) ) return;
+  const currency = foundry.utils.expandObject(changes)?.system?.currency;
+  if ( !currency || (typeof currency !== "object") ) return;
+  const more = Object.entries(currency).some(([d, n]) => (Number(n) || 0) > (Number(item._source.system?.currency?.[d]) || 0));
+  if ( !more ) return;
+  notify(options, "warn", loc("Notify.NoCoinsInto", { container: item.name }));
+  return false;
+}
+
 /** updateItem: execute a tear decided during preUpdate. */
 export function onUpdateItem(item: any, changes: any, options: any, userId?: any) {
   handleTear(item, options, userId);
@@ -302,6 +380,7 @@ Hooks.once("init", () => {
   // GM-only slot overrides are checked before the capacity and slot rules.
   Hooks.on("preUpdateItem", guardSlotOverride);
   Hooks.on("preUpdateItem", onPreUpdateItem);
+  Hooks.on("preUpdateItem", guardCoins);
   Hooks.on("createItem", onCreateItem);
   Hooks.on("updateItem", onUpdateItem);
 });

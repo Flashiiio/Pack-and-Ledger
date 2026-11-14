@@ -177,11 +177,13 @@ function getRestMealAppClass() {
         return `<option value="${esc(src.id)}"${src.id === row.src ? " selected" : ""}>${esc(label)}</option>`;
       };
       let options = sources.map(option).join("");
-      if ( !sources.some(s => s.id === row.src) ) {
+      if ( !row.src ) {
+        options = `<option value="" selected disabled>${esc(loc("Provisions.Session.ChooseSource"))}</option>${options}`;
+      } else if ( !sources.some(s => s.id === row.src) ) {
         const src = parseSource(row.src);
         options = `<option value="${esc(row.src)}" selected>${esc(src ? `${src.item.name} (${src.holder.name})` : loc("Provisions.Session.Gone"))}</option>${options}`;
       }
-      const short = res?.short ? ` short" data-tooltip="${esc(loc("Provisions.Session.RowShort", { amount: number(res.granted) }))}` : "";
+      const short = (res?.short && row.src) ? ` short" data-tooltip="${esc(loc("Provisions.Session.RowShort", { amount: number(res.granted) }))}` : "";
       const step = row.kind === "food" ? 0.5 : 1;
       return `<li class="pl-meal-row${short}" data-index="${index}">
         <select data-field="src"${running ? " disabled" : ""}>${options}</select>
@@ -244,11 +246,11 @@ function getRestMealAppClass() {
       const meals = result.actors[actorId];
       const rows = this.#readBlock(block);
       const missing = meals ? Math.max(0, meals.need[kind] - meals.had[kind]) : 0;
-      // The first source that still has something and is not in use for this character yet.
+      // A new line has no source yet: the player chooses one. It only makes sense while there is one to choose.
       const used = new Set(rows.map((r: { src: string }) => r.src));
-      const src = mealSources(session, kind).find(s => !used.has(s.id) && ((s.type === "external") || ((result.left[s.id] ?? 0) > 0)));
-      if ( !src ) return void ui.notifications.warn(loc("Provisions.Session.NoSource"));
-      rows.push({ src: src.id, units: missing || (kind === "food" ? 1 : 4) });
+      const any = mealSources(session, kind).some(s => !used.has(s.id) && ((s.type === "external") || ((result.left[s.id] ?? 0) > 0)));
+      if ( !any ) return void ui.notifications.warn(loc("Provisions.Session.NoSource"));
+      rows.push({ src: "", units: missing || (kind === "food" ? 1 : 4) });
       return this.#sendBlock(actorId, kind, block, rows);
     }
 

@@ -14,6 +14,21 @@ export const COPPER: Coins = { pp: 1000, gp: 100, ep: 50, sp: 10, cp: 1 };
 
 export const emptyCoins = (): Coins => ({ pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 });
 
+/**
+ * Share coins out equally among `count` people, denomination by denomination (nobody's gold is changed into
+ * copper). What cannot be shared equally is left over; it goes to whoever does the sharing.
+ */
+export function splitCoins(coins: Partial<Coins>, count: number): { share: Coins; rest: Coins } {
+  const share = emptyCoins(), rest = emptyCoins();
+  const n = Math.max(1, Math.floor(count) || 1);
+  for ( const d of DENOMINATIONS ) {
+    const total = Math.max(0, Math.floor(Number(coins[d]) || 0));
+    share[d] = Math.floor(total / n);
+    rest[d] = total - (share[d] * n);
+  }
+  return { share, rest };
+}
+
 const whole = (value: unknown) => Math.trunc(Number(value) || 0);
 
 /** The coins of an actor (or of plain currency data), as whole numbers. */

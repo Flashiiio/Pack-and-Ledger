@@ -332,9 +332,9 @@ export async function startRestSession(start: SessionStart): Promise<void> {
   await save(session);
 }
 
+// A line without a source (just added, not chosen yet) stays; it gives nothing.
 const cleanRows = (rows: unknown, kind: ProvisionKind): MealRow[] => (Array.isArray(rows) ? rows : []).slice(0, 30)
-  .map((r: any) => ({ kind, src: String(r?.src ?? ""), units: Math.max(0, Math.min(100, Number(r?.units) || 0)) }))
-  .filter(r => r.src);
+  .map((r: any) => ({ kind, src: String(r?.src ?? ""), units: Math.max(0, Math.min(100, Number(r?.units) || 0)) }));
 
 /** A change or vote of a player (or the GM), handled by the active GM. */
 async function handle(data: any, user: any): Promise<boolean> {

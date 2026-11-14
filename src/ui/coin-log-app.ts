@@ -1,6 +1,7 @@
 import { esc, loc } from "./helpers.js";
 import { getCoinLog, logError } from "../debug/logger.js";
-import { DENOMINATIONS, abbreviation, type Coins, type Denomination } from "../feature/currency/coins.js";
+import { DENOMINATIONS, type Coins, type Denomination } from "../feature/currency/coins.js";
+import { denominationHtml } from "./coin-html.js";
 import {
   coinLogDays, deleteCoinEntry, deltaCopper, readCoinEntries, setCoinReason, type CoinEntry
 } from "../feature/currency/coin-log.js";
@@ -24,14 +25,6 @@ function loadFilters(): Filters {
 function storeFilters(filters: Filters) {
   try { localStorage.setItem(FILTER_KEY, JSON.stringify({ ...filters, search: "" })); }
   catch { /* only a convenience */ }
-}
-
-/** The coin icon of a denomination from dnd5e, its full name as the tooltip; the short name ("GM") without an icon. */
-function denominationHtml(d: Denomination): string {
-  const config = CONFIG.DND5E?.currencies?.[d];
-  if ( !config?.icon ) return `<span class="denomination ${d}">${esc(abbreviation(d))}</span>`;
-  const label = esc(config.label ? game.i18n.localize(config.label) : abbreviation(d));
-  return `<img class="coin-icon ${d}" src="${esc(config.icon)}" alt="${label}" data-tooltip="${label}">`;
 }
 
 /** An amount of one denomination: "+5 [icon]". */
@@ -60,8 +53,13 @@ function valueHtml(copper: number): string {
   const sign = copper < 0 ? "−" : (copper > 0 ? "+" : "");
   return `<span class="amount">${sign}${text}&nbsp;${denominationHtml("gp")}</span>`;
 }
+/**
+ * A value for a CSV file. Text a spreadsheet would read as a formula ("=…", "+…", "@…", "-…" that is no number –
+ * names come from players) gets a leading apostrophe, so it is shown as text.
+ */
 const csvCell = (value: unknown) => {
-  const s = String(value ?? "");
+  let s = String(value ?? "");
+  if ( /^[=+@\t\r]/.test(s) || (/^-/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) ) s = `'${s}`;
   return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
@@ -217,7 +215,8 @@ export function getCoinLogAppClass() {
 
     #matches(e: CoinEntry): boolean {
       const f = this.filters;
-      if ( f.players && (e.source !== "player") ) return false;
+      // What players did themselves: their own changes, and putting coins into the group fund or taking them out.
+      if ( f.players && !["player", "fundDeposit", "fundWithdraw"].includes(e.source) ) return false;
       if ( f.negative && (deltaCopper(e) >= 0) ) return false;
       if ( f.flagged && !e.flagged ) return false;
       const query = f.search.trim().toLocaleLowerCase(game.i18n.lang);

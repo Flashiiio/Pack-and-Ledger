@@ -9,7 +9,7 @@ Hooks.once("init", () => {
   // Need per day. Water in pints: a waterskin (4 pints) a day.
   registerSetting("provisionsFoodPerDay", { type: Number, default: 1 });
   registerSetting("provisionsWaterPerDay", { type: Number, default: 4 });
-  // Items without a food/water subtype are recognised by their names.
+  // Items without the property Nutritious/Hydrating (or an older food/water subtype) are recognised by their names.
   registerSetting("provisionsFoodPattern", { type: String, default: "^(rations?|ration \\(1 day\\)|tagesration|ration|proviant|reiseproviant)\\b" });
   registerSetting("provisionsWaterPattern", { type: String, default: "^(waterskin|water \\(pint\\)|wasserschlauch|wasser)\\b" });
   // Further resources shown in the provisions window (torches, lamp oil …); the GM adds more by dragging items there.

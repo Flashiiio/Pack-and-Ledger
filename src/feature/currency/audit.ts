@@ -23,7 +23,7 @@ export const auditActive = (): boolean => !!getSetting("currencyAudit");
  * activity log. Called on the active GM, who carries out these requests.
  * @param note  Where the coins came from or went to (the pile, the trading partner).
  */
-export function logModuleCoins(source: "pileTake" | "pileDrop" | "trade", actor: any, user: any, before: Coins, note: string): void {
+export function logModuleCoins(source: "pileTake" | "pileDrop" | "pileSplit" | "pileFund" | "fundSplit" | "trade", actor: any, user: any, before: Coins, note: string): void {
   if ( !auditActive() ) return;
   const after = coinsOf(actor);
   const delta = difference(before, after);
@@ -119,7 +119,9 @@ function onUpdateActor(actor: any, changes: any, options: any, userId: string) {
   if ( (game.user !== game.users.activeGM) || !before || !auditActive() || !isPlayerActor(actor) ) return;
   // Changes the module made itself are in the activity log already; only sums typed into a coin field count here.
   const meta = options?.[MODULE_ID];
-  if ( meta && (meta.currency?.source !== "input") ) return;
+  // Spending coins of the group fund after its warning is still the user's own change.
+  const fundNote = (typeof meta?.fundConfirmed === "string") ? meta.fundConfirmed : "";
+  if ( meta && !meta.fundConfirmed && (meta.currency?.source !== "input") ) return;
   const after = coinsOf(actor);
   const delta = difference(before, after);
   const user = game.users.get(userId);
@@ -130,6 +132,7 @@ function onUpdateActor(actor: any, changes: any, options: any, userId: string) {
   const id = addCoinEntry({
     user: user.name, actor: actor.name, actorId: actor.id, source: user.isGM ? "gm" : "player",
     delta, before, after, converted: !!meta?.currency?.converted,
+    note: fundNote ? loc("Fund.LogSpent", { spent: fundNote }) : "",
     flagged: flagged ? loc("Coins.Log.Suspicious", { count: flagged, seconds: getSetting("currencySuspiciousSeconds") }) : ""
   });
   // Only changes a player typed need explaining; piles, trades and the GM's own changes explain themselves.

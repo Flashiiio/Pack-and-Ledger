@@ -2,7 +2,7 @@ import { isPile, isPileToken } from "../../core/policy/pile-rules.js";
 import { getSetting } from "../../core/settings/base-settings.js";
 import { dropItem, droppableItem, promptQuantity, requestTake } from "./client.js";
 import { loc } from "../../ui/helpers.js";
-import { closePileApp, openPileApp, refreshPileApps } from "../../ui/pile-app.js";
+import { closeOutOfReach, closePileApp, openPileApp, refreshPileApps } from "../../ui/pile-app.js";
 import { createCoinPile } from "./gm-tools.js";
 import { MODULE_ID } from "../../core/constants.js";
 import { markPickedUp } from "./tear-card.js";
@@ -119,7 +119,11 @@ export function registerPileHooks() {
   Hooks.on("createItem", refreshItem);
   Hooks.on("updateItem", refreshItem);
   Hooks.on("deleteItem", refreshItem);
-  Hooks.on("updateToken", token => isPileToken(token) && refreshPileApps(token));
+  Hooks.on("updateToken", (token, changes) => {
+    if ( isPileToken(token) ) refreshPileApps(token);
+    // Walked away from a pile (or the pile was moved away): its window closes.
+    if ( ("x" in changes) || ("y" in changes) ) closeOutOfReach();
+  });
   // Coins of a pile, or of the character taking from it, changed.
   Hooks.on("updateActor", (actor, changes) => {
     if ( !foundry.utils.hasProperty(changes, "system.currency") ) return;

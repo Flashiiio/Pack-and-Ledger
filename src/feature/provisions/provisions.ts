@@ -4,14 +4,16 @@ import { isPile } from "../../core/policy/pile-rules.js";
 import { isPlayerActor } from "../currency/common.js";
 import { logChange } from "../activity-log.js";
 import { loc } from "../../ui/helpers.js";
+import { isWater, isWaterskinKind } from "../../core/policy/waterskins.js";
 
 /*
  * Provisions of the group: food and water carried by the player characters and by stores such as a wagon. At a long
  * rest a character can eat and drink from the group instead of from its own pack: first from the stores that are with
  * the group, then from its own inventory, then from the other characters.
  *
- * Items are recognised as consumables of type food with the subtype food, water or both (counted by their uses), and
- * otherwise by name patterns from the settings. The need per day comes from the module's settings; what a character
+ * Items are recognised as consumables of type food with the property Nutritious (food), Hydrating (water) or both
+ * (dnd5e 6.1), or the subtype food, water or both (older versions), counted by their uses, and otherwise by name
+ * patterns from the settings. The need per day comes from the module's settings; what a character
  * had today is kept in its "sated" flag.
  */
 
@@ -92,10 +94,24 @@ function pattern(key: string): RegExp | null {
   try { return new RegExp(source, "i"); } catch { return null; }
 }
 
+/** Whether an item has a dnd5e item property (a Set on prepared data, an array in source data). */
+function hasProperty(item: any, property: string): boolean {
+  const properties = item.system?.properties;
+  if ( !properties ) return false;
+  if ( typeof properties.has === "function" ) return properties.has(property);
+  return Array.isArray(properties) && properties.includes(property);
+}
+
 /** What an item feeds: food, water, both, or nothing. */
 export function provisionKind(item: any): "food" | "water" | "both" | null {
   if ( !item?.system ) return null;
   if ( (item.type === "consumable") && (item.system.type?.value === "food") ) {
+    // dnd5e 6.1: the properties Nutritious (food) and Hydrating (water).
+    const food = hasProperty(item, "nutritious");
+    const water = hasProperty(item, "hydrating");
+    if ( food && water ) return "both";
+    if ( food || water ) return food ? "food" : "water";
+    // Older versions: the subtype food, water or both.
     const subtype = item.system.type?.subtype;
     if ( ["food", "water", "both"].includes(subtype) ) return subtype;
   }
@@ -224,12 +240,104 @@ async function addEmptied(item: any, count: number, max: number): Promise<void> 
 /*  Refilling water                              */
 /* -------------------------------------------- */
 
-/** A water item kept when empty (a waterskin) that has spent charges. */
+/** A water item kept when empty (a waterskin of older dnd5e versions, with charges) that has spent charges. */
 function refillable(item: any): boolean {
   if ( !feeds(item, "water") ) return false;
   const max = Number(item.system?.uses?.max);
   if ( !Number.isFinite(max) || (max <= 0) || item.system.uses.autoDestroy ) return false;
   return (Number(item.system.uses.spent) || 0) > 0;
+}
+
+/** dnd5e's pint of water, put into waterskins that are containers (dnd5e 2024). */
+const WATER_UUID = "Compendium.dnd5e.equipment24.Item.phbWaterpint0000";
+
+/** The pints of water lying in a waterskin. */
+const waterIn = (skin: any) => (skin.parent?.items ?? []).filter((i: any) => (i.system?.container === skin.id) && isWater(i));
+
+/** What a pint weighs, from water at hand, else 1. */
+function pintWeight(skin: any): number {
+  const weight = Number(waterIn(skin)[0]?.system?.weight?.value);
+  return (weight > 0) ? weight : 1;
+}
+
+/**
+ * How many more pints fit into a waterskin that is a container (dnd5e 2024): its capacity (by count or by weight)
+ * less what is in it. One without a capacity holds 4 pints.
+ */
+export function waterskinRoom(skin: any): number {
+  if ( !isWaterskinKind(skin) || (skin.parent?.documentName !== "Actor") ) return 0;
+  const capacity = skin.system?.capacity ?? {};
+  const count = Number(capacity.count);
+  if ( count > 0 ) return Math.max(0, Math.floor(count - (Number(skin.system.contentsCount) || 0) + 1e-9));
+  const weight = Number(capacity.weight?.value);
+  if ( weight > 0 ) {
+    const used = Number(skin.system.contentsWeight) || 0;
+    return Math.max(0, Math.floor(((weight - used) / pintWeight(skin)) + 1e-9));
+  }
+  const pints = waterIn(skin).reduce((sum: number, i: any) => sum + (Number(i.system?.quantity) || 0), 0);
+  return Math.max(0, 4 - pints);
+}
+
+/** Whether an item of an inventory is a waterskin that is not full (either kind). */
+export function canRefill(item: any): boolean {
+  if ( item?.parent?.documentName !== "Actor" ) return false;
+  return refillable(item) || (waterskinRoom(item) > 0);
+}
+
+/** The data of pints of water for a waterskin: like the water the holder already has, dnd5e's, or plain. */
+async function pintData(holder: any): Promise<any> {
+  const own = holder.items.find((i: any) => isWater(i) && (i.type === "consumable") && !(Number(i.system?.uses?.max) > 1));
+  let data = own?.toObject() ?? null;
+  if ( !data ) {
+    try { data = ((await fromUuid(WATER_UUID)) as any)?.toObject() ?? null; }
+    catch { data = null; }
+  }
+  data ??= {
+    name: loc("Provisions.Refill.Water"), type: "consumable", img: "icons/magic/water/water-drop-swirl-blue.webp",
+    system: { identifier: "water-pint", type: { value: "food" }, uses: { max: "1", spent: 0, autoDestroy: true }, weight: { value: 1, units: "lb" } }
+  };
+  delete data._id;
+  delete data.folder;
+  foundry.utils.setProperty(data, "system.uses.spent", 0);
+  foundry.utils.setProperty(data, EATEN, 0);
+  foundry.utils.setProperty(data, EMPTIED, false);
+  return data;
+}
+
+/**
+ * Refill one waterskin. @returns how many waterskins that was (a stack of emptied ones counts each) and how many
+ * pints, or null when it was full.
+ */
+async function refillOne(holder: any, item: any): Promise<{ vessels: number; pints: number } | null> {
+  // A waterskin that is a container: pints of water go into it.
+  const room = waterskinRoom(item);
+  if ( room > 0 ) {
+    const water = waterIn(item).find((i: any) => !(Number(i.system?.uses?.spent) > 0) && !eatenPart(i));
+    if ( water ) await water.update({ "system.quantity": (Number(water.system.quantity) || 0) + room }, BYPASS());
+    else {
+      const data = await pintData(holder);
+      foundry.utils.setProperty(data, "system.quantity", room);
+      foundry.utils.setProperty(data, "system.container", item.id);
+      await holder.createEmbeddedDocuments("Item", [data], BYPASS());
+    }
+    return { vessels: 1, pints: room };
+  }
+  if ( !refillable(item) ) return null;
+  // A waterskin with charges.
+  const quantity = Math.max(1, Number(item.system.quantity) || 0);
+  const max = Number(item.system.uses.max);
+  const emptied = isEmptied(item);
+  const added = (max * quantity) - usesLeft(item);
+  // Once full, it is like any full one of its kind next to it: they become one stack again.
+  const twin = holder.items.find((i: any) => (i !== item) && (i.name === item.name) && (i.type === item.type)
+    && ((i.system?.container ?? null) === (item.system?.container ?? null)) && (Number(i.system?.uses?.max) === max)
+    && !i.system.uses.autoDestroy && !isEmptied(i) && !(Number(i.system.uses.spent) > 0));
+  if ( twin ) {
+    await twin.update({ "system.quantity": (Number(twin.system.quantity) || 0) + quantity }, BYPASS());
+    await item.delete(BYPASS());
+  }
+  else await item.update({ "system.uses.spent": 0, [EMPTIED]: false, [EATEN]: 0 }, BYPASS());
+  return { vessels: emptied ? quantity : 1, pints: added };
 }
 
 /** The characters and the stores with the group, each once. */
@@ -244,45 +352,52 @@ export function refillableCount(): number {
   for ( const holder of groupHolders() ) {
     for ( const item of holder.items ) {
       if ( refillable(item) ) count += isEmptied(item) ? Math.max(1, Number(item.system.quantity) || 0) : 1;
+      else if ( waterskinRoom(item) > 0 ) count += 1;
     }
   }
   return count;
 }
 
 /**
- * Refill the waterskins of the group (GM): the characters and the stores with the group. A refilled stack joins a full
- * stack of the same kind in the same place. @returns how many waterskins were refilled and how many pints that is
+ * Refill waterskins (GM), noted in the log with one entry per character or store.
+ * @param holders  Whose waterskins.
+ * @param only     Just this waterskin.
  */
-export async function refillWater(user: any = game.user): Promise<{ vessels: number; pints: number }> {
+async function refill(holders: any[], user: any, only?: any): Promise<{ vessels: number; pints: number }> {
   const result = { vessels: 0, pints: 0 };
   if ( !game.user.isGM ) return result;
-  for ( const holder of groupHolders() ) {
+  for ( const holder of holders ) {
     const lines: string[] = [];
     let pints = 0;
-    for ( const item of [...holder.items].filter(refillable) ) {
-      const quantity = Math.max(1, Number(item.system.quantity) || 0);
-      const max = Number(item.system.uses.max);
-      const emptied = isEmptied(item);
-      const added = (max * quantity) - usesLeft(item);
-      const vessels = emptied ? quantity : 1;
-      // Once full, it is like any full one of its kind next to it: they become one stack again.
-      const twin = holder.items.find((i: any) => (i !== item) && (i.name === item.name) && (i.type === item.type)
-        && ((i.system?.container ?? null) === (item.system?.container ?? null)) && (Number(i.system?.uses?.max) === max)
-        && !i.system.uses.autoDestroy && !isEmptied(i) && !(Number(i.system.uses.spent) > 0));
-      if ( twin ) {
-        await twin.update({ "system.quantity": (Number(twin.system.quantity) || 0) + quantity }, BYPASS());
-        await item.delete(BYPASS());
-      }
-      else await item.update({ "system.uses.spent": 0, [EMPTIED]: false, [EATEN]: 0 }, BYPASS());
-      pints += added;
-      result.vessels += vessels;
-      lines.push(loc("Provisions.Refill.LogLine", { count: vessels, item: item.name, pints: added }));
+    const items = only ? [only] : [...holder.items].filter(i => refillable(i) || (waterskinRoom(i) > 0));
+    for ( const item of items ) {
+      const name = item.name;
+      const done = await refillOne(holder, item);
+      if ( !done ) continue;
+      pints += done.pints;
+      result.vessels += done.vessels;
+      lines.push(loc("Provisions.Refill.LogLine", { count: done.vessels, item: name, pints: done.pints }));
     }
     if ( !lines.length ) continue;
     result.pints += pints;
     logChange("refill", { actor: holder.name, data: { water: pints }, items: lines }, user);
   }
   return result;
+}
+
+/**
+ * Refill the waterskins of the group (GM): the characters and the stores with the group. A refilled stack joins a full
+ * stack of the same kind in the same place. @returns how many waterskins were refilled and how many pints that is
+ */
+export function refillWater(user: any = game.user): Promise<{ vessels: number; pints: number }> {
+  return refill(groupHolders(), user);
+}
+
+/** Refill a single waterskin in an inventory (GM). */
+export function refillVessel(item: any, user: any = game.user): Promise<{ vessels: number; pints: number }> {
+  const holder = item?.parent;
+  if ( holder?.documentName !== "Actor" ) return Promise.resolve({ vessels: 0, pints: 0 });
+  return refill([holder], user, item);
 }
 
 /* -------------------------------------------- */
@@ -302,7 +417,6 @@ export function sated(actor: any): { food: number; water: number } {
 
 /** Food and water an actor carries, in units. */
 export function supplyOf(actor: any): { food: number; water: number } {
-  const need = dailyNeed(actor);
   const total = { food: 0, water: 0 };
   for ( const item of actor?.items ?? [] ) {
     const uses = usesLeft(item);

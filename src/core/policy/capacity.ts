@@ -1,4 +1,6 @@
 import { MAX_DEPTH, MODULE_ID } from "../constants.js";
+import { contentRefusal, hasWeightlessContents, isSpecialContainer } from "./ammo-containers.js";
+import { getSetting } from "../settings/base-settings.js";
 
 /* -------------------------------------------- */
 /*  Units                                        */
@@ -80,7 +82,7 @@ export function itemWeightIn(item: any, units?: any, { excludeId, depth=0 }: any
   const isContainer = item.type === "container";
   const quantity = isContainer ? 1 : (sys.quantity ?? 1);
   const own = convertWeight((sys.weight?.value ?? 0) * quantity, sys.weight?.units, units);
-  if ( !isContainer || sys.properties?.has?.("weightlessContents") || (depth >= MAX_DEPTH) ) return own;
+  if ( !isContainer || hasWeightlessContents(item) || (depth >= MAX_DEPTH) ) return own;
   return own + contentsWeight(item, units, { excludeId, depth: depth + 1 });
 }
 
@@ -124,7 +126,7 @@ export function getCapacityState(container?: any, { excludeId }: any={}) {
 }
 
 function isWeightless(container?: any) {
-  return container.system?.properties?.has?.("weightlessContents") === true;
+  return hasWeightlessContents(container);
 }
 
 /**
@@ -150,6 +152,7 @@ function pathTo(actor: any, fromId: any, ancestorId?: any) {
  *                                                it is excluded from the current contents to avoid double counting.
  * @property {number} count                       Items added (for count-based capacity).
  * @property {(units: string) => number} weightIn Weight added, in the requested units.
+ * @property {Item} [item]                        The item added (for containers that hold only certain items).
  */
 
 /**
@@ -160,14 +163,24 @@ function pathTo(actor: any, fromId: any, ancestorId?: any) {
  * @param {(units: string) => number} [options.weightIn]  Weight to add, computed in the requested units.
  * @param {string} [options.excludeId]          Item id to ignore in the current contents (the item being moved).
  * @param {PendingAddition[]} [options.pending] Additions from the same batch that are not in the database yet.
- * @returns {null|{container: Item, kind: "count"|"weight"|"torn", value: number, max: number, units: string}}
+ * @param {Item} [options.item]                 The item added: ammunition containers hold only certain items.
+ * @returns {null|{container: Item, kind: "count"|"weight"|"torn"|"content"|"compartment", value: number, max: number, units: string}}
  */
-export function findOverflow(container?: any, { count=0, weightIn=() => 0, excludeId, pending=[] }: any={}) {
+export function findOverflow(container?: any, { count=0, weightIn=() => 0, excludeId, pending=[], item }: any={}) {
   const actor = container.actor;
   const seen = new Set<any>();
   // Every item whose new state is already accounted for (ours or a pending one) must not also count with its old state.
   const excluded = excludeSet(excludeId);
   for ( const p of pending ) if ( p.itemId ) excluded.add(p.itemId);
+  // Only the container the item goes into directly decides what it accepts.
+  if ( item && (container?.type === "container") && (container.flags?.[MODULE_ID]?.torn !== true) ) {
+    const refusal = contentRefusal(container, item, { count, excluded, pending });
+    if ( refusal ) return refusal;
+  }
+  // Without "Enforce container capacity" only the special containers (waterskins, ammunition containers) keep their
+  // own limits; ordinary containers and those above take anything.
+  const capacityOn = !!getSetting("enforceCapacity");
+  if ( !capacityOn && !isSpecialContainer(container) ) return null;
   let current = container;
   let weightApplies = true;
   while ( (current?.type === "container") && !seen.has(current.id) && (seen.size < MAX_DEPTH) ) {
@@ -197,6 +210,7 @@ export function findOverflow(container?: any, { count=0, weightIn=() => 0, exclu
       }
     }
 
+    if ( !capacityOn ) break;
     // Contents of a weightless container do not burden the containers above it.
     if ( isWeightless(current) ) weightApplies = false;
     current = current.system?.container ? actor?.items.get(current.system.container) : null;
