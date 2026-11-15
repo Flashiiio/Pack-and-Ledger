@@ -85,7 +85,7 @@ function activityCard(entry: FileLogEntry): Card {
 /** An entry of the coin log. */
 function coinCard(entry: CoinEntry): Card {
   const where = entry.note && !entry.lines.length
-    ? ` · ${esc(entry.source === "trade" ? loc("CoinLog.With", { name: entry.note }) : entry.note)}` : "";
+    ? ` · ${esc(((entry.source === "trade") || (entry.source === "shop")) ? loc("CoinLog.With", { name: entry.note }) : entry.note)}` : "";
   const rows = [
     `<p><strong>${esc(entry.actor)}</strong>${where}</p>`,
     `<p class="coins">${deltaHtml(entry.delta)}${deltaCopper(entry) ? ` <span class="value">(${esc(goldText(deltaCopper(entry), { signed: true }))})</span>` : ""}</p>`

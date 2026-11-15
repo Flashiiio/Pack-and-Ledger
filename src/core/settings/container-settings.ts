@@ -15,4 +15,15 @@ Hooks.once("init", () => {
   registerSetting("tearChanceFactor", { type: Number, default: 1 });
   // Quivers, bolt cases and the like hold only their ammunition (core/policy/ammo-containers.ts).
   registerSetting("ammoContainers", { type: Boolean, default: true });
+  // Picking up ammunition after combat (core/policy/ammo-recovery.ts).
+  registerSetting("ammoRecovery", { type: Boolean, default: true });
+  registerSetting("ammoRecoveryMethod", {
+    type: String,
+    default: "half",
+    choices: {
+      half: "PACK_LEDGER.Settings.ammoRecoveryMethod.Half",
+      roll: "PACK_LEDGER.Settings.ammoRecoveryMethod.Roll"
+    }
+  });
+  registerSetting("ammoRecoveryTypes", { type: Array, default: ["arrow", "crossbowBolt"] });
 });

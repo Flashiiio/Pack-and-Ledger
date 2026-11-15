@@ -1,6 +1,6 @@
 /*
  * Output of the module: tagged console messages that are also written to the module's activity log, kept in the
- * compendium "Pack & Ledger Logs" (see log-store.ts), which only GMs can open. Only the active GM writes; players send
+ * compendium "Pack & Ledger – Logs" (see log-store.ts), which only GMs can open. Only the active GM writes; players send
  * their warnings and errors to the GM.
  */
 

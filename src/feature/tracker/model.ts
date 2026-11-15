@@ -265,11 +265,3 @@ export function restoreOperations(rows: Change[]): RestoreOperations {
   result.updateItems = [...updates.values()];
   return result;
 }
-
-export function formatValue(value: unknown): string {
-  if ( value === undefined ) return "—";
-  if ( typeof value === "string" ) return value;
-  const result = JSON.stringify(value);
-  if ( result === undefined ) throw new Error("Unsupported character value.");
-  return result;
-}

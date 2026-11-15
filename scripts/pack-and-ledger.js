@@ -59,6 +59,10 @@ function requestGM(payload) {
   if (game.user.isGM) return handlers.get(payload.type)?.(payload, game.user.id);
   game.socket.emit(SOCKET, payload);
 }
+function requestActiveGM(payload) {
+  if (game.user === game.users.activeGM) return handlers.get(payload.type)?.(payload, game.user.id);
+  game.socket.emit(SOCKET, payload);
+}
 function requestingUser(data, senderId) {
   const id = senderId ?? data?.userId;
   if (!id || data?.userId && data.userId !== id) return null;
@@ -118,9 +122,9 @@ function formatEntry(level, message, time, tags = []) {
   const prefix = tags.filter(([key, value]) => /^\w+$/.test(key) && value).map(([key, value]) => `[${key}:${tagValue(value)}] `).join("");
   return [`${dayOf(d)} ${clock(d)} [${level.padEnd(5)}] ${prefix}${first}`, ...rest.map((l) => `    ${l}`)].join("\n");
 }
-function parseFileLog(text3) {
+function parseFileLog(text4) {
   const entries = [];
-  for (const line of text3.split("\n")) {
+  for (const line of text4.split("\n")) {
     if (!line.trim()) continue;
     const match = line.match(LINE);
     if (!match) {
@@ -137,10 +141,10 @@ function parseFileLog(text3) {
   }
   return entries;
 }
-function checksum(text3) {
+function checksum(text4) {
   let hash = 2166136261;
-  for (let i = 0; i < text3.length; i++) {
-    hash ^= text3.charCodeAt(i);
+  for (let i = 0; i < text4.length; i++) {
+    hash ^= text4.charCodeAt(i);
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
@@ -151,9 +155,9 @@ function entryKey(entry) {
 }
 
 // src/debug/log-store.ts
-function plainEntries(text3) {
+function plainEntries(text4) {
   const entries = [];
-  for (const line of text3.split("\n")) {
+  for (const line of text4.split("\n")) {
     if (!line.trim()) continue;
     if (/^\d{4}-\d{2}-\d{2} /.test(line) || !entries.length) entries.push(line);
     else entries[entries.length - 1] += `
@@ -162,7 +166,7 @@ ${line}`;
   return entries;
 }
 var LOG_PACK_NAME = "pack-and-ledger-logs";
-var LOG_PACK_LABEL = "Pack & Ledger Logs";
+var LOG_PACK_LABEL = "Pack & Ledger \u2013 Logs";
 var OWNERSHIP = { PLAYER: "NONE", TRUSTED: "NONE", ASSISTANT: "OWNER" };
 var FLUSH_DELAY = 3e3;
 var RETRY_DELAYS = [5e3, 15e3, 3e4, 6e4];
@@ -172,8 +176,8 @@ var creating = null;
 async function ensureLogPack() {
   const existing = logPack();
   if (existing) {
-    const open = Object.entries(OWNERSHIP).some(([role, level]) => existing.ownership?.[role] !== level);
-    if (open && game.user.isGM) await existing.configure({ ownership: { ...OWNERSHIP } });
+    const open2 = Object.entries(OWNERSHIP).some(([role, level]) => existing.ownership?.[role] !== level);
+    if (open2 && game.user.isGM) await existing.configure({ ownership: { ...OWNERSHIP } });
     return existing;
   }
   if (!game.user.isGM) return null;
@@ -246,26 +250,26 @@ var LogStore = class {
     return texts2.length ? `${texts2.join("\n")}
 ` : "";
   }
-  #documentData(day, time, text3, suffix) {
+  #documentData(day, time, text4, suffix) {
     const counter = suffix ?? pad2(this.#counter++ % 1e3, 3);
-    return { name: `${this.name} ${day} ${stamp(time)}-${counter}`, flags: { [MODULE_ID]: { log: this.name, day, text: text3 } } };
+    return { name: `${this.name} ${day} ${stamp(time)}-${counter}`, flags: { [MODULE_ID]: { log: this.name, day, text: text4 } } };
   }
   async #flush() {
-    const pending = this.#pending.splice(0);
-    if (!pending.length) return;
+    const pending2 = this.#pending.splice(0);
+    if (!pending2.length) return;
     try {
       const pack = await ensureLogPack();
       if (!pack) return;
       const days = /* @__PURE__ */ new Map();
-      for (const entry of pending) days.set(entry.day, [...days.get(entry.day) ?? [], entry]);
+      for (const entry of pending2) days.set(entry.day, [...days.get(entry.day) ?? [], entry]);
       const documents = [];
       for (const [day, entries] of days) {
-        const text3 = this.#text(entries.map((e) => e.text));
-        documents.push(this.#documentData(day, entries[0].time, text3));
+        const text4 = this.#text(entries.map((e) => e.text));
+        documents.push(this.#documentData(day, entries[0].time, text4));
       }
       await pack.documentClass.createDocuments(documents, { pack: pack.collection });
     } catch (err) {
-      this.#pending.unshift(...pending);
+      this.#pending.unshift(...pending2);
       this.#limitPending();
       const delay = RETRY_DELAYS[Math.min(this.#retries, RETRY_DELAYS.length - 1)];
       this.#retries++;
@@ -395,8 +399,8 @@ var LogStore = class {
       if (day >= today2 || count < 2) continue;
       const [first, ...rest] = await this.chunks([day]);
       if (!first || !rest.length) continue;
-      const text3 = joinChunks([first, ...rest].map((c) => c.text));
-      await pack.documentClass.updateDocuments([{ _id: first.id, flags: { [MODULE_ID]: { text: text3 } } }], { pack: pack.collection });
+      const text4 = joinChunks([first, ...rest].map((c) => c.text));
+      await pack.documentClass.updateDocuments([{ _id: first.id, flags: { [MODULE_ID]: { text: text4 } } }], { pack: pack.collection });
       await pack.documentClass.deleteDocuments(rest.map((c) => c.id), { pack: pack.collection });
       compacted++;
     }
@@ -523,6 +527,44 @@ function playerListBar(app, html) {
   }
   return bar;
 }
+function replaceKeepingFocus(content, result) {
+  const scroll = [...content.querySelectorAll("[data-scroll]")].map((el) => [el.dataset.scroll, el.scrollTop]);
+  const active = document.activeElement;
+  let focus = null;
+  if (active && content.contains(active) && active.dataset?.field) {
+    let start = null, end = null;
+    try {
+      start = active.selectionStart;
+      end = active.selectionEnd;
+    } catch {
+    }
+    focus = { key: active.dataset.field, value: active.value, start, end };
+  }
+  content.replaceChildren(result);
+  for (const [key, top] of scroll) {
+    const el = content.querySelector(`[data-scroll="${CSS.escape(key ?? "")}"]`);
+    if (el) el.scrollTop = top;
+  }
+  if (!focus) return;
+  const field = content.querySelector(`[data-field="${CSS.escape(focus.key)}"]`);
+  if (!field || field.disabled) return;
+  if (field.type !== "checkbox" && field.value !== focus.value) {
+    const rendered = field.value;
+    field.value = focus.value;
+    let announced = false;
+    field.addEventListener("change", () => {
+      announced = true;
+    }, { once: true });
+    field.addEventListener("blur", () => {
+      if (!announced && field.isConnected && field.value !== rendered) field.dispatchEvent(new Event("change", { bubbles: true }));
+    }, { once: true });
+  }
+  field.focus();
+  try {
+    if (focus.start !== null) field.setSelectionRange(focus.start, focus.end);
+  } catch {
+  }
+}
 
 // src/ui/settings-app.ts
 var PATTERNS = ["freePattern", "clothingPattern", "jugPattern", "trinketPattern"];
@@ -543,7 +585,14 @@ var TABS = [
         { key: "overfillMode", requires: ["enforceCapacity"] },
         { key: "overfillHardLimit", requires: ["enforceCapacity", "overfillMode=risk"], unit: "%", min: 0, step: 1 },
         { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "\xD7", min: 0, step: 0.1 },
-        "ammoContainers"
+        "ammoContainers",
+        "ammoRecovery",
+        { key: "ammoRecoveryMethod", requires: ["ammoRecovery"] },
+        {
+          key: "ammoRecoveryTypes",
+          requires: ["ammoRecovery"],
+          multi: () => globalThis.CONFIG.DND5E.consumableTypes?.ammo?.subtypes ?? {}
+        }
       ]
     }]
   },
@@ -596,7 +645,7 @@ var TABS = [
       },
       {
         title: "Trade",
-        fields: ["tradeEnabled", { key: "tradeRange", requires: ["tradeEnabled"], unit: "Squares", min: 0, step: 1 }]
+        fields: ["tradeEnabled", { key: "tradeRange", requires: ["tradeEnabled"], unit: "Squares", min: 0, step: 1 }, "shopBadge"]
       }
     ]
   },
@@ -725,8 +774,8 @@ function validRegex(pattern2) {
     return false;
   }
 }
-function hintHtml(text3) {
-  const lines = String(text3 ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+function hintHtml(text4) {
+  const lines = String(text4 ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
   if (lines.length <= 1) return `<p class="hint">${esc(lines[0] ?? "")}</p>`;
   const items = [];
   const notes2 = [];
@@ -846,6 +895,14 @@ function getSettingsAppClass() {
     #renderControl(field, config, value) {
       const { key } = field;
       const id = `pack-ledger-setting-${key}`;
+      if (field.multi) {
+        const selected = Array.isArray(value) ? value : [];
+        return `<div class="pack-ledger-multi" id="${id}">
+          ${Object.entries(field.multi()).map(([option, label2]) => `
+            <label><input type="checkbox" name="${key}" value="${esc(option)}" data-multi${selected.includes(option) ? " checked" : ""}>
+              <span>${esc(game.i18n.localize(typeof label2 === "string" ? label2 : label2?.label ?? option))}</span></label>`).join("")}
+        </div>`;
+      }
       if (config.type === Boolean) {
         return `<label class="pack-ledger-switch"><input type="checkbox" id="${id}" name="${key}"${value ? " checked" : ""}>
           <span class="track" inert><span class="thumb"></span></span></label>`;
@@ -935,6 +992,7 @@ function getSettingsAppClass() {
       const inputs = this.form.querySelectorAll(`[name="${key}"]`);
       if (!inputs.length) return void 0;
       const first = inputs[0];
+      if (first.hasAttribute("data-multi")) return [...inputs].filter((i) => i.checked).map((i) => i.value);
       if (first.type === "checkbox") return first.checked;
       if (first.type === "radio") return [...inputs].find((i) => i.checked)?.value ?? configOf(key)?.default;
       if (first.type === "number") {
@@ -946,7 +1004,8 @@ function getSettingsAppClass() {
     /** Write a value into the form. */
     #setFormValue(key, value) {
       for (const input of this.form.querySelectorAll(`[name="${key}"]`)) {
-        if (input.type === "checkbox") input.checked = !!value;
+        if (input.hasAttribute("data-multi")) input.checked = Array.isArray(value) && value.includes(input.value);
+        else if (input.type === "checkbox") input.checked = !!value;
         else if (input.type === "radio") input.checked = input.value === value;
         else input.value = value ?? "";
         if (input.classList.contains("pattern")) this.#checkPattern(input);
@@ -1132,8 +1191,8 @@ function abbreviation(d) {
   const label2 = CONFIG.DND5E?.currencies?.[d]?.abbreviation;
   return label2 ? game.i18n.localize(label2) : d;
 }
-function parseAmount(text3, fallback) {
-  const source = String(text3 ?? "").trim().toLocaleLowerCase(game.i18n.lang);
+function parseAmount(text4, fallback) {
+  const source = String(text4 ?? "").trim().toLocaleLowerCase(game.i18n.lang);
   if (!source) return null;
   const names = aliasMap();
   const coins = emptyCoins();
@@ -1151,17 +1210,250 @@ function parseAmount(text3, fallback) {
 }
 function coinsText(coins, { signed = false } = {}) {
   const number3 = (n) => {
-    const text3 = Math.abs(n).toLocaleString(game.i18n.lang);
-    if (!signed) return n < 0 ? `\u2212${text3}` : text3;
-    return `${n < 0 ? "\u2212" : "+"}${text3}`;
+    const text4 = Math.abs(n).toLocaleString(game.i18n.lang);
+    if (!signed) return n < 0 ? `\u2212${text4}` : text4;
+    return `${n < 0 ? "\u2212" : "+"}${text4}`;
   };
   const parts = DENOMINATIONS.filter((d) => coins[d]).map((d) => `${number3(coins[d])} ${abbreviation(d)}`);
   return parts.length ? parts.join(", ") : `0 ${abbreviation("cp")}`;
 }
 function goldText(copper, { signed = false } = {}) {
-  const text3 = Math.abs(copper / 100).toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
+  const text4 = Math.abs(copper / 100).toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
   const sign = copper < 0 ? "\u2212" : signed && copper > 0 ? "+" : "";
-  return `${sign}${text3} ${abbreviation("gp")}`;
+  return `${sign}${text4} ${abbreviation("gp")}`;
+}
+
+// src/core/policy/pile-rules.ts
+function isPile(actor) {
+  return actor?.flags?.[MODULE_ID]?.pile === true;
+}
+function pileCustomName(token) {
+  return String(token?.flags?.[MODULE_ID]?.customName ?? "").trim();
+}
+function isIdentifiable(item) {
+  return !!item?.system && "identified" in item.system;
+}
+function isUnidentified(item) {
+  return isIdentifiable(item) && item.system.identified === false;
+}
+function logName(item) {
+  const shown = String(item?.name ?? "");
+  if (!isUnidentified(item)) return shown;
+  const real = item._source?.name ?? item.toObject?.().name;
+  return real && real !== shown ? `${shown} (${real})` : shown;
+}
+function isPileToken(token) {
+  return token?.flags?.[MODULE_ID]?.pile === true && isPile(token.actor);
+}
+var COINS = ["pp", "gp", "ep", "sp", "cp"];
+function coinsOf2(source) {
+  const currency = source?.system?.currency ?? source ?? {};
+  return Object.fromEntries(COINS.map((d) => [d, Math.max(0, Math.floor(Number(currency[d]) || 0))]));
+}
+var hasCoins = (coins) => COINS.some((d) => (coins?.[d] ?? 0) > 0);
+function coinsLabel(coins) {
+  return COINS.filter((d) => (coins?.[d] ?? 0) > 0).map((d) => `${coins[d]} ${game.i18n.localize(CONFIG.DND5E?.currencies?.[d]?.abbreviation ?? d)}`).join(", ");
+}
+function pileLock(token) {
+  const lock = token?.flags?.[MODULE_ID]?.lock;
+  if (!lock || typeof lock !== "object") return null;
+  const dc = Number(lock.dc);
+  return {
+    locked: lock.locked === true,
+    dc: Number.isFinite(dc) && dc > 0 ? Math.floor(dc) : null,
+    key: String(lock.key ?? "").trim(),
+    // Actors that already tried a Mystery Key on this lock.
+    tried: Array.isArray(lock.tried) ? lock.tried.filter((t) => typeof t === "string") : []
+  };
+}
+var isLocked = (token) => pileLock(token)?.locked === true;
+function discoverDC(token) {
+  const dc = Number(token?.flags?.[MODULE_ID]?.discoverDC);
+  return Number.isFinite(dc) && dc > 0 ? Math.floor(dc) : null;
+}
+function isKeyFor(lock, name) {
+  if (!lock?.key) return false;
+  return String(name ?? "").trim().localeCompare(lock.key, void 0, { sensitivity: "accent" }) === 0;
+}
+function thievesTools(actor) {
+  return actor?.items.find((i) => i.type === "tool" && i.system?.type?.baseItem === "thief") ?? null;
+}
+
+// src/core/policy/shop-prices.ts
+var DEFAULT_VALUABLES = ["art", "gem"];
+var MINUTES_PER_DAY = 24 * 60;
+function cleanHours(raw) {
+  const mode = raw?.mode === "auto" || raw?.mode === "closed" ? raw.mode : "open";
+  const time = (value, fallback) => {
+    const n = Math.floor(Number(value));
+    return Number.isFinite(n) ? clamp(n, 0, MINUTES_PER_DAY - 1) : fallback;
+  };
+  const days = Array.isArray(raw?.closedDays) ? raw.closedDays : [];
+  const closedDays = [...new Set(days.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d < 100))];
+  return { mode, from: time(raw?.from, 8 * 60), to: time(raw?.to, 20 * 60), closedDays: closedDays.sort((a, b) => a - b) };
+}
+function cleanFunds(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const coins = emptyCoins();
+  for (const d of DENOMINATIONS) coins[d] = Math.max(0, Math.floor(Number(raw[d]) || 0));
+  return DENOMINATIONS.some((d) => coins[d] > 0) ? coins : null;
+}
+function isOpenAt(hours, time) {
+  if (hours.mode !== "auto") return hours.mode === "open";
+  if (time.dayOfWeek !== null && hours.closedDays.includes(time.dayOfWeek)) return false;
+  const now = time.hour * 60 + time.minute;
+  if (hours.from === hours.to) return true;
+  return hours.from < hours.to ? now >= hours.from && now < hours.to : now >= hours.from || now < hours.to;
+}
+var clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+var finite = (value) => {
+  if (typeof value === "string" && !value.trim()) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+function merchantConfig(actor) {
+  const raw = actor?.flags?.[MODULE_ID]?.merchant ?? {};
+  const markup = finite(raw.markup), buyRate = finite(raw.buyRate);
+  return {
+    enabled: raw.enabled === true,
+    markup: markup === null ? 0 : Math.max(-100, markup),
+    buyRate: buyRate === null ? 50 : clamp(buyRate, 0, 1e3),
+    unlimitedFunds: raw.unlimitedFunds === true,
+    name: typeof raw.name === "string" ? raw.name.trim().slice(0, 100) : "",
+    img: typeof raw.img === "string" ? raw.img.trim() : "",
+    description: typeof raw.description === "string" ? raw.description.trim().slice(0, 4e3) : "",
+    buysNothing: raw.buysNothing === true,
+    showItems: raw.showItems !== false,
+    gmDescription: raw.gmDescription !== false,
+    valuables: Array.isArray(raw.valuables) ? raw.valuables.filter((v) => typeof v === "string") : [...DEFAULT_VALUABLES],
+    hours: cleanHours(raw.hours),
+    restockFunds: cleanFunds(raw.restockFunds)
+  };
+}
+var isMerchant = (actor) => !!actor && actor.type === "npc" && !isPile(actor) && merchantConfig(actor).enabled;
+var rateOf = (denomination) => typeof denomination === "string" && Object.hasOwn(COPPER, denomination) ? COPPER[denomination] : 0;
+var fine = (copper) => Math.round(copper * 1e4) / 1e4;
+var MAX_PRICE_PER = 1e5;
+function pricePer(item) {
+  const per = Math.floor(Number(item?.flags?.[MODULE_ID]?.pricePer));
+  return Number.isFinite(per) && per > 1 ? Math.min(per, MAX_PRICE_PER) : 1;
+}
+function listPrice(item) {
+  const price = item?.system?.price;
+  const value = Number(price?.value), rate = rateOf(price?.denomination);
+  if (!Number.isFinite(value) || value <= 0 || !rate) return null;
+  return fine(value * rate / pricePer(item));
+}
+function shopFlags(item) {
+  const flags2 = item?.flags?.[MODULE_ID]?.shop ?? {};
+  const value = Number(flags2.price?.value), rate = rateOf(flags2.price?.denomination);
+  const fixed = Number.isFinite(value) && value > 0 && rate ? fine(value * rate / pricePer(item)) : null;
+  const max = Math.floor(Number(flags2.maxStock));
+  const until = finite(flags2.until);
+  return {
+    unlimited: flags2.unlimited === true,
+    price: fixed,
+    maxStock: flags2.maxStock === null || flags2.maxStock === void 0 || flags2.maxStock === "" || !Number.isFinite(max) ? null : Math.max(0, max),
+    until: flags2.until === null || flags2.until === void 0 ? null : until
+  };
+}
+var SERVICE_PREFIX = "service.";
+var MAX_SERVICES = 200;
+var text = (value, max) => typeof value === "string" ? value.trim().slice(0, max) : "";
+function merchantServices(actor) {
+  const raw = actor?.flags?.[MODULE_ID]?.services;
+  if (!Array.isArray(raw)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  return raw.slice(0, MAX_SERVICES).flatMap((s) => {
+    const id = text(s?.id, 32);
+    if (!id || seen.has(id)) return [];
+    seen.add(id);
+    const value = finite(s.price?.value), rate = rateOf(s.price?.denomination);
+    return [{
+      id,
+      name: text(s.name, 100) || "?",
+      category: text(s.category, 60),
+      price: value !== null && value > 0 && rate ? fine(value * rate) : 0,
+      img: text(s.img, 500),
+      description: text(s.description, 1e3)
+    }];
+  });
+}
+var offerExpired = (item, now) => {
+  const { until } = shopFlags(item);
+  return until !== null && now >= until;
+};
+var isValuable = (item, config) => item?.type === "loot" && config.valuables.includes(item.system?.type?.value);
+var isUnidentified2 = (item) => item?.system?.identified === false;
+function sellPrice(item, config) {
+  const fixed = shopFlags(item).price;
+  if (fixed !== null) return fixed;
+  if (isUnidentified2(item)) return null;
+  const list = listPrice(item);
+  if (list === null || isValuable(item, config)) return list;
+  return Math.max(0, fine(list * (1 + config.markup / 100)));
+}
+function buyPrice(item, config) {
+  if (isUnidentified2(item)) return 0;
+  const list = listPrice(item);
+  if (list === null) return 0;
+  return isValuable(item, config) ? list : fine(list * config.buyRate / 100);
+}
+var lineTotal = (unit, quantity) => Math.round(unit * quantity);
+function cartTotals(buy, sell, discount) {
+  const sum = (lines) => lines.reduce((s, l) => s + lineTotal(l.unit, l.quantity), 0);
+  const rate = clamp(finite(discount) ?? 0, 0, 100);
+  const bought = sum(buy), sold = sum(sell);
+  const off = Math.round(bought * rate / 100);
+  return { buy: bought, discount: off, sell: sold, net: bought - off - sold };
+}
+function dealSignature(buy, sell, discount) {
+  return JSON.stringify([
+    buy.map((l) => [l.id, l.quantity, l.unit]),
+    sell.map((l) => [l.id, l.quantity, l.unit, l.accepted]),
+    discount
+  ]);
+}
+function applyDecision(lines, decision, buying = true) {
+  const given = /* @__PURE__ */ new Map();
+  for (const d of Array.isArray(decision?.sells) ? decision.sells : []) if (d && typeof d.id === "string") given.set(d.id, d);
+  const sells = lines.map((line) => {
+    const d = given.get(line.id);
+    const unit = finite(d?.unit);
+    return {
+      ...line,
+      proposed: line.unit,
+      accepted: d?.accepted !== false,
+      unit: unit === null ? line.unit : Math.max(0, fine(unit))
+    };
+  });
+  const discount = buying ? clamp(finite(decision?.discount) ?? 0, 0, 100) : 0;
+  const changed = discount > 0 || sells.some((s) => !s.accepted || s.unit !== s.proposed);
+  return { discount, sells, changed };
+}
+function coinsForCopper(copper, order = ["gp", "sp", "cp"]) {
+  const coins = emptyCoins();
+  let rest = Math.max(0, Math.round(copper));
+  for (const d of order) {
+    coins[d] = Math.floor(rest / COPPER[d]);
+    rest -= coins[d] * COPPER[d];
+  }
+  coins.cp += rest;
+  return coins;
+}
+function shopPayment(customer, merchant, net, order) {
+  if (!Number.isFinite(net)) return "cannotPay";
+  const amount2 = Math.abs(Math.round(net));
+  if (!amount2) return { customer: { ...customer }, merchant: merchant && { ...merchant } };
+  const coins = coinsForCopper(amount2, order);
+  if (net > 0) {
+    const paid2 = pay(customer, coins);
+    if (!paid2) return "cannotPay";
+    return { customer: paid2, merchant: merchant && add(merchant, coins) };
+  }
+  const paid = merchant && pay(merchant, coins);
+  if (merchant && !paid) return "merchantBroke";
+  return { customer: add(customer, coins), merchant: paid };
 }
 
 // src/ui/coin-html.ts
@@ -1179,35 +1471,48 @@ function locCoins(key, data, coins, empty = "") {
   const mark = "COINS";
   return esc(loc(key, { ...data, coins: mark })).replace(mark, coinsHtml(coins, empty));
 }
+function copperHtml(copper, empty = `0 ${abbreviation("cp")}`) {
+  return copper === null ? "\u2014" : coinsHtml(coinsForCopper(copper), empty);
+}
+function unitHtml(unit, per = 1) {
+  if (unit === null) return "\u2014";
+  if (per > 1) {
+    const count = per.toLocaleString(game.i18n.lang);
+    return `${copperHtml(Math.round(unit * per))} <span class="per">${esc(loc("Shop.PerCount", { count }))}</span>`;
+  }
+  if (Number.isInteger(unit)) return copperHtml(unit);
+  const amount2 = unit.toLocaleString(game.i18n.lang, { maximumFractionDigits: 4 });
+  return `<span class="pl-coins"><span class="pl-coin">${amount2}&nbsp;${denominationHtml("cp")}</span></span>`;
+}
 
 // src/feature/currency/coin-log.ts
-var SOURCES = /* @__PURE__ */ new Set(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "pileSplit", "pileFund", "fundSplit", "fundDeposit", "fundWithdraw", "trade"]);
-var text = (value, max = 200) => String(value ?? "").slice(0, max);
+var SOURCES = /* @__PURE__ */ new Set(["player", "gm", "invoicePaid", "invoiceDeclined", "invoiceFailed", "pileTake", "pileDrop", "pileSplit", "pileFund", "fundSplit", "fundDeposit", "fundWithdraw", "trade", "shop"]);
+var text2 = (value, max = 200) => String(value ?? "").slice(0, max);
 var coinsOrNull = (value) => value && typeof value === "object" ? coinsOf(value) : null;
 function clean(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const id = text(raw.id, 32);
+  const id = text2(raw.id, 32);
   const time = Number.isFinite(raw.time) ? Math.min(raw.time, Date.now()) : Date.now();
   if (!id) return null;
-  if (raw.t === "reason") return { t: "reason", id, reason: text(raw.reason, 1e3), by: text(raw.by), time };
+  if (raw.t === "reason") return { t: "reason", id, reason: text2(raw.reason, 1e3), by: text2(raw.by), time };
   if (raw.t !== "entry" || !SOURCES.has(raw.source)) return null;
   return {
     t: "entry",
     id,
     time,
-    user: text(raw.user),
-    actor: text(raw.actor),
-    actorId: text(raw.actorId, 32),
+    user: text2(raw.user),
+    actor: text2(raw.actor),
+    actorId: text2(raw.actorId, 32),
     source: raw.source,
     delta: coinsOf(raw.delta),
     before: coinsOrNull(raw.before),
     after: coinsOrNull(raw.after),
-    reason: text(raw.reason, 1e3),
-    flagged: text(raw.flagged),
+    reason: text2(raw.reason, 1e3),
+    flagged: text2(raw.flagged),
     converted: !!raw.converted,
-    lines: (Array.isArray(raw.lines) ? raw.lines : []).slice(0, 50).map((l) => text(l)),
-    note: text(raw.note, 1e3),
-    by: text(raw.by)
+    lines: (Array.isArray(raw.lines) ? raw.lines : []).slice(0, 50).map((l) => text2(l)),
+    note: text2(raw.note, 1e3),
+    by: text2(raw.by)
   };
 }
 function write(raw) {
@@ -1322,9 +1627,9 @@ function balance(coins) {
   return `<span class="purse">${parts.length ? parts.join(" ") : amountHtml(0, "cp", "")}</span>`;
 }
 function valueHtml(copper) {
-  const text3 = Math.abs(copper / 100).toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
+  const text4 = Math.abs(copper / 100).toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
   const sign = copper < 0 ? "\u2212" : copper > 0 ? "+" : "";
-  return `<span class="amount">${sign}${text3}&nbsp;${denominationHtml("gp")}</span>`;
+  return `<span class="amount">${sign}${text4}&nbsp;${denominationHtml("gp")}</span>`;
 }
 var csvCell = (value) => {
   let s = String(value ?? "");
@@ -1495,18 +1800,18 @@ function getCoinLogAppClass() {
     /** The pile or trading partner of coins the module moved. */
     #where(e) {
       if (!e.note || e.lines.length) return "";
-      const text3 = e.source === "trade" ? loc("CoinLog.With", { name: e.note }) : e.note;
-      return `<br><small class="where">${esc(text3)}</small>`;
+      const text4 = e.source === "trade" || e.source === "shop" ? loc("CoinLog.With", { name: e.note }) : e.note;
+      return `<br><small class="where">${esc(text4)}</small>`;
     }
     #renderRow(e) {
-      const open = this.expanded.has(e.id);
+      const open2 = this.expanded.has(e.id);
       const reason = this.#reasonText(e);
       const time = new Date(e.time);
       const row = `
-        <tr class="entry ${e.source}${e.flagged ? " flagged" : ""}${open ? " open" : ""}">
+        <tr class="entry ${e.source}${e.flagged ? " flagged" : ""}${open2 ? " open" : ""}">
           <td class="toggle"><button type="button" class="icon" data-action="toggle" data-id="${e.id}"
-              aria-expanded="${open}" aria-label="${esc(loc("CoinLog.Details"))}">
-              <i class="fa-solid ${open ? "fa-chevron-down" : "fa-chevron-right"}" inert></i></button></td>
+              aria-expanded="${open2}" aria-label="${esc(loc("CoinLog.Details"))}">
+              <i class="fa-solid ${open2 ? "fa-chevron-down" : "fa-chevron-right"}" inert></i></button></td>
           <td class="time">${esc(time.toLocaleDateString(game.i18n.lang))}<br><small>${esc(time.toLocaleTimeString(game.i18n.lang))}</small></td>
           <td>${esc(e.user)}</td>
           <td><a data-action="openActor" data-actor-id="${esc(e.actorId)}">${esc(e.actor)}</a></td>
@@ -1517,7 +1822,7 @@ function getCoinLogAppClass() {
           <td class="reason" title="${esc(reason)}">${reason ? esc(reason.length > 50 ? `${reason.slice(0, 50)}\u2026` : reason) : "\u2014"}</td>
           <td>${e.flagged ? `<span class="flag"><i class="fa-solid fa-triangle-exclamation" inert></i> ${esc(e.flagged)}</span>` : e.converted ? `<span class="converted" data-tooltip="${esc(loc("Coins.Log.Converted"))}"><i class="fa-solid fa-right-left" inert></i></span>` : "\u2014"}</td>
         </tr>`;
-      return open ? row + this.#renderDetails(e) : row;
+      return open2 ? row + this.#renderDetails(e) : row;
     }
     #renderDetails(e) {
       const item = (label2, value) => `<div><div class="label">${esc(loc(label2))}</div><div>${value}</div></div>`;
@@ -1697,14 +2002,14 @@ var copy = (value) => structuredClone(value);
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function equal(left, right) {
-  if (Object.is(left, right)) return true;
-  if (Array.isArray(left) && Array.isArray(right)) {
-    return left.length === right.length && left.every((value, index) => equal(value, right[index]));
+function equal(left2, right) {
+  if (Object.is(left2, right)) return true;
+  if (Array.isArray(left2) && Array.isArray(right)) {
+    return left2.length === right.length && left2.every((value, index) => equal(value, right[index]));
   }
-  if (!isObject(left) || !isObject(right)) return false;
-  const keys = Object.keys(left);
-  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && equal(left[key], right[key]));
+  if (!isObject(left2) || !isObject(right)) return false;
+  const keys = Object.keys(left2);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && equal(left2[key], right[key]));
 }
 function isConcentration(effect) {
   return isObject(effect) && (isObject(effect.system) && effect.system.type === "concentrating" || Array.isArray(effect.statuses) && effect.statuses.some((status) => status === "concentrating" || status === "concentration"));
@@ -1749,7 +2054,7 @@ function validateSnapshot(snapshot, systemId, actorType) {
   }
   return snapshot;
 }
-var privateFields = (text3) => String(text3 ?? "").split(/[\n,;]/).map((f) => f.trim()).filter(Boolean);
+var privateFields = (text4) => String(text4 ?? "").split(/[\n,;]/).map((f) => f.trim()).filter(Boolean);
 function excluded(options) {
   return [...ALWAYS_IGNORED, ...options.biography ? [] : options.privateFields ?? DEFAULT_PRIVATE_FIELDS];
 }
@@ -1758,7 +2063,7 @@ function ignored(path, options) {
   return excluded(options).some((prefix) => field === prefix || field.startsWith(`${prefix}.`));
 }
 var isBlank = (value) => value === void 0 || value === null || value === "";
-var blankOrZero = (left, right) => isBlank(left) && (right === 0 || isBlank(right)) || isBlank(right) && left === 0;
+var blankOrZero = (left2, right) => isBlank(left2) && (right === 0 || isBlank(right)) || isBlank(right) && left2 === 0;
 var isUnchanged = (row) => equal(row.before, row.after) || blankOrZero(row.before, row.after);
 function leaves(before, after, path, emit, options) {
   if (ignored(path, options) || equal(before, after) || blankOrZero(before, after)) return;
@@ -1781,23 +2086,23 @@ function change(kind, id, path, before, after, name) {
 }
 function differences(before, after, options = {}) {
   const rows = [];
-  leaves(before.actor, after.actor, [], (path, left, right) => {
-    rows.push(change("actor", null, path, left, right, after.actor.name));
+  leaves(before.actor, after.actor, [], (path, left2, right) => {
+    rows.push(change("actor", null, path, left2, right, after.actor.name));
   }, options);
   if (before.items !== after.items) {
     const previous = new Map(before.items.map((item) => [item._id, item]));
-    const current = new Map(after.items.map((item) => [item._id, item]));
-    for (const id of [.../* @__PURE__ */ new Set([...previous.keys(), ...current.keys()])].sort()) {
-      const left = previous.get(id);
-      const right = current.get(id);
-      if (!left || !right) {
-        const item = right ?? left;
+    const current2 = new Map(after.items.map((item) => [item._id, item]));
+    for (const id of [.../* @__PURE__ */ new Set([...previous.keys(), ...current2.keys()])].sort()) {
+      const left2 = previous.get(id);
+      const right = current2.get(id);
+      if (!left2 || !right) {
+        const item = right ?? left2;
         if (!item) throw new Error("Inventory comparison lost an embedded document.");
-        rows.push(change("item", id, [], left, right, item.name));
+        rows.push(change("item", id, [], left2, right, item.name));
         continue;
       }
       const fields = (item) => ({ name: item.name, img: item.img, system: item.system ?? {} });
-      leaves(fields(left), fields(right), [], (path, oldValue, newValue) => {
+      leaves(fields(left2), fields(right), [], (path, oldValue, newValue) => {
         rows.push(change("item", id, path, oldValue, newValue, right.name));
       }, options);
     }
@@ -1923,8 +2228,8 @@ function label(row, context) {
   return schemaLabel(model, rest) || rest.join(" \u203A ");
 }
 var MAX_TEXT = 80;
-function plain(text3) {
-  const stripped = text3.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+function plain(text4) {
+  const stripped = text4.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
   return stripped.length > MAX_TEXT ? `${stripped.slice(0, MAX_TEXT)}\u2026` : stripped;
 }
 function readableValue(row, value, context) {
@@ -1937,8 +2242,8 @@ function readableValue(row, value, context) {
   }
   if (row.kind === "actor" && typeof value === "number" && /^system\.(skills\.\w+\.value|abilities\.\w+\.proficient)$/.test(row.path.join("."))) {
     const level = CONFIG.DND5E?.proficiencyLevels?.[value];
-    const text3 = typeof level === "string" ? level : level?.label;
-    if (text3) return game.i18n.localize(text3);
+    const text4 = typeof level === "string" ? level : level?.label;
+    if (text4) return game.i18n.localize(text4);
   }
   if (typeof value === "number") return value.toLocaleString(game.i18n.lang);
   if (row.kind === "item" && leaf === "container" && typeof value === "string") {
@@ -1968,7 +2273,7 @@ function describeChange(row, actor) {
   const field = label(row, contextOf(row, actor));
   return row.kind === "item" ? `${row.name}: ${field}` : field;
 }
-var escapeRegExp = (text3) => text3.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+var escapeRegExp = (text4) => text4.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function concentrationSpell(effect) {
   const flags2 = isObject(effect.flags) ? effect.flags.dnd5e : null;
   const uuid = String(flags2?.item?.uuid ?? effect.origin ?? "");
@@ -2022,62 +2327,6 @@ function describeLine(row, actor) {
   return `${what}: ${describeValue(row, "before", actor)} \u2192 ${describeValue(row, "after", actor)}`;
 }
 
-// src/core/policy/pile-rules.ts
-function isPile(actor) {
-  return actor?.flags?.[MODULE_ID]?.pile === true;
-}
-function pileCustomName(token) {
-  return String(token?.flags?.[MODULE_ID]?.customName ?? "").trim();
-}
-function isIdentifiable(item) {
-  return !!item?.system && "identified" in item.system;
-}
-function isUnidentified(item) {
-  return isIdentifiable(item) && item.system.identified === false;
-}
-function logName(item) {
-  const shown = String(item?.name ?? "");
-  if (!isUnidentified(item)) return shown;
-  const real = item._source?.name ?? item.toObject?.().name;
-  return real && real !== shown ? `${shown} (${real})` : shown;
-}
-function isPileToken(token) {
-  return token?.flags?.[MODULE_ID]?.pile === true && isPile(token.actor);
-}
-var COINS = ["pp", "gp", "ep", "sp", "cp"];
-function coinsOf2(source) {
-  const currency = source?.system?.currency ?? source ?? {};
-  return Object.fromEntries(COINS.map((d) => [d, Math.max(0, Math.floor(Number(currency[d]) || 0))]));
-}
-var hasCoins = (coins) => COINS.some((d) => (coins?.[d] ?? 0) > 0);
-function coinsLabel(coins) {
-  return COINS.filter((d) => (coins?.[d] ?? 0) > 0).map((d) => `${coins[d]} ${game.i18n.localize(CONFIG.DND5E?.currencies?.[d]?.abbreviation ?? d)}`).join(", ");
-}
-function pileLock(token) {
-  const lock = token?.flags?.[MODULE_ID]?.lock;
-  if (!lock || typeof lock !== "object") return null;
-  const dc = Number(lock.dc);
-  return {
-    locked: lock.locked === true,
-    dc: Number.isFinite(dc) && dc > 0 ? Math.floor(dc) : null,
-    key: String(lock.key ?? "").trim(),
-    // Actors that already tried a Mystery Key on this lock.
-    tried: Array.isArray(lock.tried) ? lock.tried.filter((t) => typeof t === "string") : []
-  };
-}
-var isLocked = (token) => pileLock(token)?.locked === true;
-function discoverDC(token) {
-  const dc = Number(token?.flags?.[MODULE_ID]?.discoverDC);
-  return Number.isFinite(dc) && dc > 0 ? Math.floor(dc) : null;
-}
-function isKeyFor(lock, name) {
-  if (!lock?.key) return false;
-  return String(name ?? "").trim().localeCompare(lock.key, void 0, { sensitivity: "accent" }) === 0;
-}
-function thievesTools(actor) {
-  return actor?.items.find((i) => i.type === "tool" && i.system?.type?.baseItem === "thief") ?? null;
-}
-
 // src/feature/tracker/cast-notes.ts
 var LIFETIME = 15e3;
 var notes = /* @__PURE__ */ new Map();
@@ -2101,11 +2350,11 @@ function takeCast(uuid, slot) {
 function awaitCasts(uuid, slots, timeout = 3e3) {
   const ready2 = () => slots.every((slot) => find(uuid, slot) >= 0);
   if (!slots.length || ready2()) return Promise.resolve();
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const done = () => {
       waiting.delete(check);
       clearTimeout(timer);
-      resolve();
+      resolve2();
     };
     const check = () => {
       if (ready2()) done();
@@ -2151,7 +2400,7 @@ var state = (actor) => capture(actor._source, game.system.id);
 function changedState(actor, previous, fields) {
   const source = actor._source;
   if (!isObject(source)) throw new Error("Invalid character source data.");
-  const current = capture({
+  const current2 = capture({
     name: source.name,
     type: source.type,
     system: fields.has("system") ? source.system : void 0,
@@ -2159,13 +2408,13 @@ function changedState(actor, previous, fields) {
     effects: fields.has("effects") ? source.effects : void 0
   }, game.system.id);
   return {
-    ...current,
+    ...current2,
     actor: fields.has("name") || fields.has("system") ? {
-      name: fields.has("name") ? current.actor.name : previous.actor.name,
-      system: fields.has("system") ? current.actor.system : previous.actor.system
+      name: fields.has("name") ? current2.actor.name : previous.actor.name,
+      system: fields.has("system") ? current2.actor.system : previous.actor.system
     } : previous.actor,
-    items: fields.has("items") ? current.items : previous.items,
-    concentration: fields.has("effects") ? current.concentration : previous.concentration
+    items: fields.has("items") ? current2.items : previous.items,
+    concentration: fields.has("effects") ? current2.concentration : previous.concentration
   };
 }
 function remember(actor) {
@@ -2181,10 +2430,10 @@ function observe(actor, userId, changes) {
   const fields = changes ? new Set(Object.keys(changes).map((key) => key.split(".")[0].replace(/^-=/, ""))) : void 0;
   if (fields && !["name", "system", "items", "effects", "type"].some((field) => fields.has(field))) return;
   const previous = cache.get(actor.uuid);
-  const current = previous && fields && !fields.has("type") ? changedState(actor, previous, fields) : state(actor);
-  cache.set(actor.uuid, current);
+  const current2 = previous && fields && !fields.has("type") ? changedState(actor, previous, fields) : state(actor);
+  cache.set(actor.uuid, current2);
   if (!previous || !eligible(actor)) return;
-  record(actor, userId, differences(previous, current, comparisonOptions()));
+  record(actor, userId, differences(previous, current2, comparisonOptions()));
 }
 function observeItem(actor, item, operation, userId) {
   if (!started || !actor || !trackerActive()) return;
@@ -2200,14 +2449,14 @@ function observeItem(actor, item, operation, userId) {
   }
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
   const before = { ...previous, items: oldItem ? [oldItem] : [] };
-  const current = { ...previous, timestamp, items: currentItem ? [currentItem] : [] };
+  const current2 = { ...previous, timestamp, items: currentItem ? [currentItem] : [] };
   if (index >= 0) {
     if (currentItem) previous.items[index] = currentItem;
     else previous.items.splice(index, 1);
   } else if (currentItem) previous.items.push(currentItem);
   previous.timestamp = timestamp;
   if (!eligible(actor)) return;
-  record(actor, userId, differences(before, current, comparisonOptions()));
+  record(actor, userId, differences(before, current2, comparisonOptions()));
 }
 function record(actor, userId, rows) {
   if (!rows.length) return;
@@ -2483,7 +2732,7 @@ function getSnapshotAppClass() {
 }
 
 // src/ui/ledger-entries.ts
-var ACTIVITY_KINDS = ["pickup", "drop", "trade", "stow", "tidy", "repair", "tear", "discover", "unlock", "provision", "refill"];
+var ACTIVITY_KINDS = ["pickup", "drop", "trade", "stow", "tidy", "repair", "tear", "discover", "unlock", "provision", "refill", "ammoRecovery", "shop"];
 var ICONS = {
   pickup: "fa-solid fa-hand-holding",
   drop: "fa-solid fa-arrow-down",
@@ -2496,6 +2745,8 @@ var ICONS = {
   unlock: "fa-solid fa-unlock",
   provision: "fa-solid fa-wheat-awn",
   refill: "fa-solid fa-droplet",
+  ammoRecovery: "fa-solid fa-bow-arrow",
+  shop: "fa-solid fa-store",
   [CHARACTER_KIND]: "fa-solid fa-user-pen",
   [SPELL_KIND]: "fa-solid fa-wand-sparkles",
   info: "fa-solid fa-circle-info",
@@ -2520,8 +2771,8 @@ function kindOf(entry, title) {
   }
   return entry.level.toLowerCase();
 }
-function numberOf(text3) {
-  const clean3 = text3.trim().replace(/−/g, "-");
+function numberOf(text4) {
+  const clean3 = text4.trim().replace(/−/g, "-");
   if (!/^-?[\d.,\s  ]+$/.test(clean3)) return NaN;
   return Number(clean3.replace(/[^\d-]/g, ""));
 }
@@ -2541,7 +2792,7 @@ function legacyConcentration(line) {
   const arrow = line.indexOf(" \u2192 ");
   if (!line.startsWith(start) || arrow < 0) return null;
   const effect = new RegExp(`(^|, )${game.i18n.localize("EFFECT.DND5E.StatusConcentrating").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*`, "g");
-  const value = (text3) => text3.trim() === "\u2014" ? "" : text3.replace(effect, "$1").trim();
+  const value = (text4) => text4.trim() === "\u2014" ? "" : text4.replace(effect, "$1").trim();
   const before = value(line.slice(start.length, arrow));
   const after = value(line.slice(arrow + 3));
   if (before && after) return { label: "", before, after, change: "switched", notes: [] };
@@ -2563,11 +2814,11 @@ function parseRow(line) {
     const colon2 = line.indexOf(": ");
     return colon2 > 0 ? { label: line.slice(0, colon2), after: line.slice(colon2 + 2), notes: [] } : { label: line, notes: [] };
   }
-  const left = line.slice(0, arrow);
-  const colon = left.lastIndexOf(": ");
+  const left2 = line.slice(0, arrow);
+  const colon = left2.lastIndexOf(": ");
   const row = {
-    label: colon < 0 ? left : left.slice(0, colon),
-    before: colon < 0 ? "" : left.slice(colon + 2),
+    label: colon < 0 ? left2 : left2.slice(0, colon),
+    before: colon < 0 ? "" : left2.slice(colon + 2),
     after: line.slice(arrow + 3),
     notes: []
   };
@@ -2610,14 +2861,14 @@ function linkHtml(uuid, name) {
   if (doc?.toAnchor) return doc.toAnchor({ name }).outerHTML;
   return `<a class="content-link broken" data-uuid="${esc(uuid)}"><i class="fa-solid fa-link-slash" inert></i>${esc(name)}</a>`;
 }
-function richText(text3) {
+function richText(text4) {
   let html = "";
   let last = 0;
-  for (const match of text3.matchAll(LINK)) {
-    html += esc(text3.slice(last, match.index)) + linkHtml(match[1], match[2]);
+  for (const match of text4.matchAll(LINK)) {
+    html += esc(text4.slice(last, match.index)) + linkHtml(match[1], match[2]);
     last = match.index + match[0].length;
   }
-  return html + esc(text3.slice(last));
+  return html + esc(text4.slice(last));
 }
 function rowHtml(row) {
   const notes2 = row.notes.map((n) => `
@@ -2819,10 +3070,10 @@ function getLogAppClass() {
         aria-label="${esc(loc(label2))}"${disabled ? " disabled" : ""}><i class="${icon}" inert></i></button>`;
     }
     /** A choice of user or character; a value no longer in the day's entries is kept so the filter stays visible. */
-    #renderSelect(key, values, current) {
-      if (current && !values.includes(current)) values = [current, ...values];
+    #renderSelect(key, values, current2) {
+      if (current2 && !values.includes(current2)) values = [current2, ...values];
       const label2 = loc(`LogApp.${key === "user" ? "User" : "Actor"}`);
-      const options = values.map((v) => `<option value="${esc(v)}"${v === current ? " selected" : ""}>${esc(v)}</option>`);
+      const options = values.map((v) => `<option value="${esc(v)}"${v === current2 ? " selected" : ""}>${esc(v)}</option>`);
       return `<select name="${key}" aria-label="${esc(label2)}"${values.length ? "" : " disabled"}>
         <option value="">${esc(loc(`LogApp.All${key === "user" ? "Users" : "Actors"}`))}</option>${options.join("")}</select>`;
     }
@@ -3075,6 +3326,16 @@ Hooks.once("init", () => {
   registerSetting("overfillHardLimit", { type: Number, default: 0 });
   registerSetting("tearChanceFactor", { type: Number, default: 1 });
   registerSetting("ammoContainers", { type: Boolean, default: true });
+  registerSetting("ammoRecovery", { type: Boolean, default: true });
+  registerSetting("ammoRecoveryMethod", {
+    type: String,
+    default: "half",
+    choices: {
+      half: "PACK_LEDGER.Settings.ammoRecoveryMethod.Half",
+      roll: "PACK_LEDGER.Settings.ammoRecoveryMethod.Roll"
+    }
+  });
+  registerSetting("ammoRecoveryTypes", { type: Array, default: ["arrow", "crossbowBolt"] });
 });
 
 // src/core/settings/slot-settings.ts
@@ -3122,6 +3383,169 @@ Hooks.once("init", () => {
   });
 });
 
+// src/feature/blind-names.ts
+var BSR_ID = "blind-skill-rolls";
+function bsrSetting(key) {
+  try {
+    return game.settings.get(BSR_ID, key);
+  } catch {
+    return void 0;
+  }
+}
+function hiddenNameLabel() {
+  const configured = String(bsrSetting("bsrNpcNameReplacement") ?? "").trim();
+  if (configured) return configured;
+  if (game.i18n.has("BSR.NPC.Label.Unknown")) return game.i18n.localize("BSR.NPC.Label.Unknown");
+  return game.i18n.localize("PACK_LEDGER.Trade.Unknown");
+}
+function tokenOf(actor) {
+  if (actor.isToken) return actor.token;
+  const onScene = canvas?.scene?.tokens.find((t) => t.actor === actor);
+  if (onScene) return onScene;
+  for (const scene of game.scenes) {
+    const token = scene.tokens.find((t) => t.actor === actor);
+    if (token) return token;
+  }
+  return null;
+}
+function isNameHidden(actor, user, token) {
+  if (!game.modules.get(BSR_ID)?.active || !user || user.isGM) return false;
+  if (actor.type === "character" || actor.testUserPermission(user, "OWNER")) return false;
+  if (bsrSetting("bsrNpcMaskDefault") !== true) return false;
+  const base = actor.isToken ? actor.baseActor ?? actor : actor;
+  if (base?.flags?.[BSR_ID]?.permRevealed === true) return false;
+  const revealed = (token ?? tokenOf(actor))?.flags?.[BSR_ID]?.revealed;
+  return revealed !== true;
+}
+function visibleName(actor, user = game.user, token = null) {
+  const name = token?.name ?? actor?.name ?? "?";
+  if (!actor) return name;
+  return isNameHidden(actor, user, token) ? hiddenNameLabel() : name;
+}
+
+// src/feature/shop/hours.ts
+function worldClock() {
+  const calendar = game.time?.calendar;
+  let parts = null;
+  try {
+    parts = calendar?.timeToComponents?.(game.time.worldTime);
+  } catch {
+  }
+  const weekdays = calendar?.days?.values?.length ?? 0;
+  return {
+    hour: Number(parts?.hour) || 0,
+    minute: Number(parts?.minute) || 0,
+    dayOfWeek: weekdays && Number.isInteger(parts?.dayOfWeek) ? parts.dayOfWeek : null
+  };
+}
+function calendarWeekdays() {
+  const values = game.time?.calendar?.days?.values ?? [];
+  return [...values].map((day, index) => ({ index, name: game.i18n.localize(day?.name ?? String(index + 1)) }));
+}
+function calendarUnits() {
+  const days = game.time?.calendar?.days;
+  const hour = (Number(days?.secondsPerMinute) || 60) * (Number(days?.minutesPerHour) || 60);
+  return { hour, day: hour * (Number(days?.hoursPerDay) || 24) };
+}
+function durationText(seconds) {
+  const { hour, day } = calendarUnits();
+  const s = Math.max(0, seconds);
+  const days = Math.floor(s / day);
+  const hours = Math.floor(s % day / hour);
+  if (days) return [loc("Shop.TimeDays", { n: days }), hours ? loc("Shop.TimeHours", { n: hours }) : ""].filter(Boolean).join(" ");
+  if (hours) return loc("Shop.TimeHours", { n: hours });
+  return loc("Shop.TimeMinutes", { n: Math.max(1, Math.ceil(s / (hour / 60))) });
+}
+function hoursInfo(merchant, config = merchantConfig(merchant)) {
+  const names = calendarWeekdays();
+  return {
+    mode: config.hours.mode,
+    open: isOpenAt(config.hours, worldClock()),
+    text: hoursText(config.hours),
+    closedDays: config.hours.mode === "auto" ? config.hours.closedDays.map((i) => names.find((d) => d.index === i)?.name).filter(Boolean) : []
+  };
+}
+function timeKey(merchant, items) {
+  const now = game.time?.worldTime ?? 0;
+  const offers = [...items].flatMap((item) => {
+    const until = Number(item.flags?.[MODULE_ID]?.shop?.until);
+    if (!Number.isFinite(until)) return [];
+    return [`${item.id}:${now >= until ? "x" : durationText(until - now)}`];
+  });
+  return [shopOpenNow(merchant) ? "open" : "closed", ...offers].join("|");
+}
+var shopOpenNow = (merchant) => isOpenAt(merchantConfig(merchant).hours, worldClock());
+function badgeState(actor) {
+  if (!getSetting("shopBadge") || !isMerchant(actor)) return null;
+  return shopOpenNow(actor) ? "open" : "closed";
+}
+var clockText = (minutes) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+var hoursText = (hours) => hours.mode === "auto" && hours.from !== hours.to ? `${clockText(hours.from)}\u2013${clockText(hours.to)}` : null;
+function shopName(merchant, user = game.user, config = merchantConfig(merchant)) {
+  return config.name || visibleName(merchant, user);
+}
+function closedMessage(merchant, user) {
+  const config = merchantConfig(merchant);
+  const hours = hoursText(config.hours);
+  const shop = shopName(merchant, user, config);
+  return hours ? loc("Shop.ClosedHours", { shop, hours }) : loc("Shop.ClosedNow", { shop });
+}
+
+// src/ui/shop-badge.ts
+var ICON = "icons/svg/coins.svg";
+function onRefreshTokenBadge(token, flags2) {
+  if (flags2?.refreshState || flags2?.refreshSize) drawBadge(token);
+}
+function onWorldTimeBadges() {
+  for (const token of canvas.tokens?.placeables ?? []) {
+    if (badgeState(token.actor) !== (token.packLedgerShopBadge?.state ?? null)) token.renderFlags.set({ refreshState: true });
+  }
+}
+function onBadgeActorUpdate(actor, changes) {
+  if (!foundry.utils.hasProperty(changes, `flags.${MODULE_ID}`)) return;
+  for (const token of canvas.tokens?.placeables ?? []) {
+    if (token.actor?.id === actor.id) token.renderFlags.set({ refreshState: true });
+  }
+}
+function refreshShopBadges() {
+  for (const token of canvas.tokens?.placeables ?? []) token.renderFlags.set({ refreshState: true });
+}
+function drawBadge(token) {
+  let badge = token.packLedgerShopBadge;
+  if (badge?.destroyed) badge = token.packLedgerShopBadge = null;
+  const state2 = badgeState(token.actor);
+  if (!state2) {
+    badge?.destroy({ children: true });
+    token.packLedgerShopBadge = null;
+    return;
+  }
+  if (!badge) badge = token.packLedgerShopBadge = token.addChild(createBadge(token));
+  badge.state = state2;
+  const radius = Math.min(token.w, token.h) / 6;
+  badge.position.set(token.w - radius, radius);
+  badge.circle.clear().lineStyle(Math.max(1, radius / 10), 16777215, 0.6).beginFill(1118481, 0.85).drawCircle(0, 0, radius).endFill();
+  if (badge.icon.texture.valid) badge.icon.width = badge.icon.height = radius * 1.3;
+  const closed = state2 === "closed";
+  badge.circle.tint = badge.icon.tint = closed ? 8947848 : 16777215;
+  badge.alpha = closed ? 0.55 : 1;
+  badge.visible = !token.document.isSecret;
+}
+function createBadge(token) {
+  const badge = new PIXI.Container();
+  badge.zIndex = 2;
+  badge.eventMode = "none";
+  badge.circle = badge.addChild(new PIXI.Graphics());
+  const cached = foundry.canvas.getTexture(ICON);
+  badge.icon = badge.addChild(new PIXI.Sprite(cached ?? PIXI.Texture.EMPTY));
+  badge.icon.anchor.set(0.5);
+  if (!cached) foundry.canvas.loadTexture(ICON).then((texture) => {
+    if (!texture || badge.destroyed) return;
+    badge.icon.texture = texture;
+    token.renderFlags.set({ refreshState: true });
+  });
+  return badge;
+}
+
 // src/core/settings/map-settings.ts
 Hooks.once("init", () => {
   registerSetting("pilesEnabled", { type: Boolean, default: true });
@@ -3134,6 +3558,7 @@ Hooks.once("init", () => {
   registerSetting("pileLockDC", { type: Number, default: 15 });
   registerSetting("tradeEnabled", { type: Boolean, default: true });
   registerSetting("tradeRange", { type: Number, default: 1 });
+  registerSetting("shopBadge", { type: Boolean, default: true, onChange: refreshShopBadges });
 });
 
 // src/core/policy/capacity.ts
@@ -3294,7 +3719,7 @@ function needsAmmoContainer(item) {
   if (item?.type !== "consumable" || item.system?.type?.value !== "ammo") return false;
   return OWN_CONTAINER_ONLY.includes(ammoKind(item));
 }
-function contentRefusal(container, item, { count = 1, excluded: excluded2 = /* @__PURE__ */ new Set(), pending = [] } = {}) {
+function contentRefusal(container, item, { count = 1, excluded: excluded2 = /* @__PURE__ */ new Set(), pending: pending2 = [] } = {}) {
   if (container?.type === "container" && ammoContainerOf(item)) return { container, kind: "wornOnly", value: 0, max: 0, units: "" };
   const water = waterskinRefusal(container, item);
   if (water) return water;
@@ -3311,7 +3736,7 @@ function contentRefusal(container, item, { count = 1, excluded: excluded2 = /* @
     if (i.system?.container !== container.id || excluded2.has(i.id)) continue;
     if (compartmentOf(rule, i) === compartment) used += Number(i.system?.quantity ?? 1) || 0;
   }
-  for (const p of pending) {
+  for (const p of pending2) {
     if (p.containerId === container.id && p.item && compartmentOf(rule, p.item) === compartment) used += p.count;
   }
   if (used <= compartment.max) return null;
@@ -3370,9 +3795,9 @@ function itemWeightIn(item, units, { excludeId, depth = 0 } = {}) {
   const sys = item.system ?? {};
   const isContainer = item.type === "container";
   const quantity = isContainer ? 1 : sys.quantity ?? 1;
-  const own = convertWeight((sys.weight?.value ?? 0) * quantity, sys.weight?.units, units);
-  if (!isContainer || hasWeightlessContents(item) || depth >= MAX_DEPTH) return own;
-  return own + contentsWeight(item, units, { excludeId, depth: depth + 1 });
+  const own2 = convertWeight((sys.weight?.value ?? 0) * quantity, sys.weight?.units, units);
+  if (!isContainer || hasWeightlessContents(item) || depth >= MAX_DEPTH) return own2;
+  return own2 + contentsWeight(item, units, { excludeId, depth: depth + 1 });
 }
 function contentsWeight(container, units, { excludeId, depth = 0 } = {}) {
   const excluded2 = excludeSet(excludeId);
@@ -3406,52 +3831,52 @@ function isWeightless(container) {
   return hasWeightlessContents(container);
 }
 function pathTo(actor, fromId, ancestorId) {
-  let current = actor?.items.get(fromId);
+  let current2 = actor?.items.get(fromId);
   let weightless = false;
-  for (let depth = 0; current && depth < MAX_DEPTH; depth++) {
-    if (current.id === ancestorId) return { weightless };
-    if (isWeightless(current)) weightless = true;
-    current = current.system?.container ? actor.items.get(current.system.container) : null;
+  for (let depth = 0; current2 && depth < MAX_DEPTH; depth++) {
+    if (current2.id === ancestorId) return { weightless };
+    if (isWeightless(current2)) weightless = true;
+    current2 = current2.system?.container ? actor.items.get(current2.system.container) : null;
   }
   return null;
 }
-function findOverflow(container, { count = 0, weightIn = () => 0, excludeId, pending = [], item } = {}) {
+function findOverflow(container, { count = 0, weightIn = () => 0, excludeId, pending: pending2 = [], item } = {}) {
   const actor = container.actor;
   const seen = /* @__PURE__ */ new Set();
   const excluded2 = excludeSet(excludeId);
-  for (const p of pending) if (p.itemId) excluded2.add(p.itemId);
+  for (const p of pending2) if (p.itemId) excluded2.add(p.itemId);
   if (item && container?.type === "container" && container.flags?.[MODULE_ID]?.torn !== true) {
-    const refusal = contentRefusal(container, item, { count, excluded: excluded2, pending });
+    const refusal = contentRefusal(container, item, { count, excluded: excluded2, pending: pending2 });
     if (refusal) return refusal;
   }
   const capacityOn = !!getSetting("enforceCapacity");
   if (!capacityOn && !isSpecialContainer(container)) return null;
-  let current = container;
+  let current2 = container;
   let weightApplies = true;
-  while (current?.type === "container" && !seen.has(current.id) && seen.size < MAX_DEPTH) {
-    seen.add(current.id);
-    if (current.flags?.[MODULE_ID]?.torn === true) {
-      return { container: current, kind: "torn", value: 0, max: 0, units: "" };
+  while (current2?.type === "container" && !seen.has(current2.id) && seen.size < MAX_DEPTH) {
+    seen.add(current2.id);
+    if (current2.flags?.[MODULE_ID]?.torn === true) {
+      return { container: current2, kind: "torn", value: 0, max: 0, units: "" };
     }
-    const { maxCount, maxWeight, units } = getCapacity(current);
+    const { maxCount, maxWeight, units } = getCapacity(current2);
     const extras = [];
-    for (const p of pending) {
-      const path = p.containerId === current.id ? { weightless: false } : pathTo(actor, p.containerId, current.id);
+    for (const p of pending2) {
+      const path = p.containerId === current2.id ? { weightless: false } : pathTo(actor, p.containerId, current2.id);
       if (path) extras.push({ count: p.count, weightIn: path.weightless ? null : p.weightIn });
     }
     if (maxCount) {
-      const total = contentsCount(current, { excludeId: excluded2 }) + count + extras.reduce((n, e) => n + e.count, 0);
-      if (total > maxCount) return { container: current, kind: "count", value: total, max: maxCount, units: "" };
+      const total = contentsCount(current2, { excludeId: excluded2 }) + count + extras.reduce((n, e) => n + e.count, 0);
+      if (total > maxCount) return { container: current2, kind: "count", value: total, max: maxCount, units: "" };
     }
     if (maxWeight) {
-      const total = contentsWeight(current, units, { excludeId: excluded2 }) + (weightApplies ? weightIn(units) : 0) + extras.reduce((w, e) => w + (e.weightIn ? e.weightIn(units) : 0), 0);
+      const total = contentsWeight(current2, units, { excludeId: excluded2 }) + (weightApplies ? weightIn(units) : 0) + extras.reduce((w, e) => w + (e.weightIn ? e.weightIn(units) : 0), 0);
       if (total > maxWeight + 1e-6) {
-        return { container: current, kind: "weight", value: total, max: maxWeight, units: weightUnitsLabel(units) };
+        return { container: current2, kind: "weight", value: total, max: maxWeight, units: weightUnitsLabel(units) };
       }
     }
     if (!capacityOn) break;
-    if (isWeightless(current)) weightApplies = false;
-    current = current.system?.container ? actor?.items.get(current.system.container) : null;
+    if (isWeightless(current2)) weightApplies = false;
+    current2 = current2.system?.container ? actor?.items.get(current2.system.container) : null;
   }
   return null;
 }
@@ -3478,8 +3903,8 @@ var UNIT_ALIASES = {
   tonne: "Mg",
   tonnen: "Mg"
 };
-function parseBodyWeight(text3) {
-  const match = String(text3 ?? "").match(/([\d]+(?:[.,]\d+)?)\s*([a-zA-ZäöüÄÖÜ]*)/);
+function parseBodyWeight(text4) {
+  const match = String(text4 ?? "").match(/([\d]+(?:[.,]\d+)?)\s*([a-zA-ZäöüÄÖÜ]*)/);
   if (!match) return null;
   const value = Number(match[1].replace(",", "."));
   if (!Number.isFinite(value) || value <= 0) return null;
@@ -3556,8 +3981,8 @@ var currencyOptions = (meta) => ({ [MODULE_ID]: { currency: meta } });
 
 // src/feature/activity-log.ts
 var MAX_ENTRIES = 100;
-var TYPES = /* @__PURE__ */ new Set(["tear", "pickup", "stow", "tidy", "repair", "drop", "trade", "discover", "unlock", "provision", "refill"]);
-var text2 = (value, max = 200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+var TYPES = /* @__PURE__ */ new Set(["tear", "pickup", "stow", "tidy", "repair", "drop", "trade", "discover", "unlock", "provision", "refill", "ammoRecovery", "shop"]);
+var text3 = (value, max = 200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 function logChange(type, { actor = "", data = {}, items = [] } = {}, user = game.user) {
   const entry = { time: Date.now(), type, actor, data, items };
   if (game.user.isGM) return record2(entry, user);
@@ -3569,17 +3994,17 @@ function sanitize(raw, user) {
   const data = {};
   for (const [key, value] of Object.entries(raw.data ?? {}).slice(0, 10)) {
     if (typeof value === "number") {
-      if (Number.isFinite(value)) data[text2(key, 30)] = value;
-    } else data[text2(key, 30)] = text2(value, 500);
+      if (Number.isFinite(value)) data[text3(key, 30)] = value;
+    } else data[text3(key, 30)] = text3(value, 500);
   }
   const now = Date.now();
   return {
     time: Number.isFinite(raw.time) && raw.time <= now ? raw.time : now,
     type: raw.type,
-    actor: text2(raw.actor),
-    user: text2(user.name),
+    actor: text3(raw.actor),
+    user: text3(user.name),
     data,
-    items: Array.isArray(raw.items) ? raw.items.slice(0, 200).map((i) => text2(i)) : []
+    items: Array.isArray(raw.items) ? raw.items.slice(0, 200).map((i) => text3(i)) : []
   };
 }
 var queue3 = [];
@@ -3603,16 +4028,16 @@ async function flush() {
 var deferring = Promise.resolve();
 function defer(entry) {
   deferring = deferring.then(() => {
-    const pending = game.user.getFlag(MODULE_ID, "pendingLog") ?? [];
-    return game.user.setFlag(MODULE_ID, "pendingLog", [...pending, entry].slice(-MAX_ENTRIES));
+    const pending2 = game.user.getFlag(MODULE_ID, "pendingLog") ?? [];
+    return game.user.setFlag(MODULE_ID, "pendingLog", [...pending2, entry].slice(-MAX_ENTRIES));
   }).catch((err) => logError(`Failed to keep a change log entry for the GM`, err));
 }
 async function collectDeferredEntries() {
   if (game.user !== game.users.activeGM) return;
   for (const user of game.users) {
-    const pending = user.getFlag(MODULE_ID, "pendingLog");
-    if (!Array.isArray(pending) || !pending.length) continue;
-    for (const entry of pending) record2(entry, user);
+    const pending2 = user.getFlag(MODULE_ID, "pendingLog");
+    if (!Array.isArray(pending2) || !pending2.length) continue;
+    for (const entry of pending2) record2(entry, user);
     await user.unsetFlag(MODULE_ID, "pendingLog");
   }
 }
@@ -3674,8 +4099,8 @@ function storeState(actor) {
 var partyStores = () => game.actors.filter((a) => storeState(a).enabled && !isPile(a));
 async function setStore(actor, state2) {
   if (!game.user.isGM) return;
-  const current = storeState(actor);
-  await actor.setFlag(MODULE_ID, STORE_FLAG, { enabled: state2.enabled ?? current.enabled, present: state2.present ?? current.present });
+  const current2 = storeState(actor);
+  await actor.setFlag(MODULE_ID, STORE_FLAG, { enabled: state2.enabled ?? current2.enabled, present: state2.present ?? current2.present });
 }
 function pattern(key) {
   const source = String(getSetting(key) ?? "").trim();
@@ -3730,9 +4155,9 @@ function eatenPart(item) {
   return Math.min(0.999, Math.max(0, part));
 }
 var portionStep = (kind) => kind === "food" ? 0.5 : 1;
-var toPortions = (amount, kind) => {
+var toPortions = (amount2, kind) => {
   const step = portionStep(kind);
-  return Math.max(0, Math.ceil(amount / step - 1e-9) * step);
+  return Math.max(0, Math.ceil(amount2 / step - 1e-9) * step);
 };
 var EMPTIED = `flags.${MODULE_ID}.emptied`;
 var isEmptied = (item) => !!foundry.utils.getProperty(item, EMPTIED);
@@ -3741,9 +4166,9 @@ async function consume(item, uses) {
   const whole2 = Math.floor(total + 1e-9);
   const part = total - whole2 > 1e-9 ? Math.round((total - whole2) * 1e3) / 1e3 : 0;
   if (whole2 > 0) await consumeWhole(item, whole2);
-  const current = item.parent?.items.get(item.id);
-  if (!current) return;
-  if (Math.abs(eatenPart(current) - part) > 1e-9) await current.update({ [EATEN]: part }, BYPASS());
+  const current2 = item.parent?.items.get(item.id);
+  if (!current2) return;
+  if (Math.abs(eatenPart(current2) - part) > 1e-9) await current2.update({ [EATEN]: part }, BYPASS());
 }
 async function consumeWhole(item, uses) {
   const quantity = Math.max(0, Number(item.system?.quantity ?? 1) || 0);
@@ -3821,8 +4246,8 @@ function canRefill(item) {
   return refillable(item) || waterskinRoom(item) > 0;
 }
 async function pintData(holder) {
-  const own = holder.items.find((i) => isWater(i) && i.type === "consumable" && !(Number(i.system?.uses?.max) > 1));
-  let data = own?.toObject() ?? null;
+  const own2 = holder.items.find((i) => isWater(i) && i.type === "consumable" && !(Number(i.system?.uses?.max) > 1));
+  let data = own2?.toObject() ?? null;
   if (!data) {
     try {
       data = (await fromUuid(WATER_UUID))?.toObject() ?? null;
@@ -3915,8 +4340,8 @@ function dailyNeed(actor) {
   return { food: Number(getSetting("provisionsFoodPerDay")) || 0, water: Number(getSetting("provisionsWaterPerDay")) || 0 };
 }
 function sated(actor) {
-  const own = foundry.utils.getProperty(actor, OWN_SATED) ?? {};
-  return { food: Number(own.food) || 0, water: Number(own.water) || 0 };
+  const own2 = foundry.utils.getProperty(actor, OWN_SATED) ?? {};
+  return { food: Number(own2.food) || 0, water: Number(own2.water) || 0 };
 }
 function supplyOf(actor) {
   const total = { food: 0, water: 0 };
@@ -3946,7 +4371,7 @@ function customResources() {
   return Array.isArray(value) ? value.filter((r) => r && typeof r.id === "string" && !BUILTIN.some((b) => b.id === r.id)) : [];
 }
 var trackedResources = () => [...BUILTIN, ...customResources()];
-var normal = (text3) => String(text3 ?? "").trim().toLocaleLowerCase();
+var normal = (text4) => String(text4 ?? "").trim().toLocaleLowerCase();
 function matchesResource(item, res) {
   if (res.identifier && item.system?.identifier === res.identifier) return true;
   const names = (res.names ?? []).map(normal);
@@ -4011,41 +4436,41 @@ function daysOfSupply(stock, need, people, magic) {
   const result = { food: DAYS_CAP, water: DAYS_CAP };
   if (people <= 0) return result;
   const each = { food: need.food / people, water: need.water / people };
-  const left = { ...stock };
+  const left2 = { ...stock };
   const tankardWater = Math.min(people, magic.tankards * TANKARD_WATER_PEOPLE) * each.water;
   const jugFood = Math.min(people, JUG_FOOD_PEOPLE) * each.food / 2;
   const jugWater = Math.min(people, JUG_WATER_PEOPLE) * each.water;
-  const open = { food: true, water: true };
-  for (let day = 0; day < DAYS_CAP && (open.food || open.water); day++) {
+  const open2 = { food: true, water: true };
+  for (let day = 0; day < DAYS_CAP && (open2.food || open2.water); day++) {
     const missing = { food: need.food, water: Math.max(0, need.water - tankardWater) };
     for (let j = 0; j < magic.jugs; j++) {
-      const soon = (kind) => open[kind] && missing[kind] > 0 ? left[kind] / missing[kind] : Infinity;
+      const soon = (kind) => open2[kind] && missing[kind] > 0 ? left2[kind] / missing[kind] : Infinity;
       if (missing.food <= 0 && missing.water <= 0) break;
-      const saves = (kind, gives) => open[kind] && left[kind] < missing[kind] && left[kind] >= missing[kind] - gives;
+      const saves = (kind, gives) => open2[kind] && left2[kind] < missing[kind] && left2[kind] >= missing[kind] - gives;
       const toFood = saves("food", jugFood) ? true : saves("water", jugWater) ? false : soon("food") <= soon("water");
       if (toFood) missing.food = Math.max(0, missing.food - jugFood);
       else missing.water = Math.max(0, missing.water - jugWater);
     }
     for (const kind of ["food", "water"]) {
-      if (!open[kind]) continue;
-      if (left[kind] + 1e-9 < missing[kind]) {
+      if (!open2[kind]) continue;
+      if (left2[kind] + 1e-9 < missing[kind]) {
         result[kind] = day;
-        open[kind] = false;
-        left[kind] = 0;
-      } else left[kind] -= missing[kind];
+        open2[kind] = false;
+        left2[kind] = 0;
+      } else left2[kind] -= missing[kind];
     }
   }
   return result;
 }
 async function addResource(item) {
   if (!game.user.isGM || !item) return false;
-  const current = customResources();
+  const current2 = customResources();
   const name = item._source?.name ?? item.name;
-  const exists = [...BUILTIN, ...current].some((r) => !r.kind && matchesResource(item, r));
+  const exists = [...BUILTIN, ...current2].some((r) => !r.kind && matchesResource(item, r));
   if (exists || provisionKind(item)) return false;
   const identifier = item.system?.identifier || void 0;
-  current.push({ id: foundry.utils.randomID(), label: name, img: item.img, names: [name], identifier });
-  await game.settings.set(MODULE_ID, "provisionsResources", current);
+  current2.push({ id: foundry.utils.randomID(), label: name, img: item.img, names: [name], identifier });
+  await game.settings.set(MODULE_ID, "provisionsResources", current2);
   return true;
 }
 async function removeResource(id) {
@@ -4121,8 +4546,8 @@ function magicTakes(actor, kind, missing, use) {
     missing -= units;
   };
   if (kind === "water") {
-    const own = tankards.filter((t) => t.holder.id === actor.id);
-    for (const entry of [...own, ...tankards.filter((t) => t.holder.id !== actor.id)]) {
+    const own2 = tankards.filter((t) => t.holder.id === actor.id);
+    for (const entry of [...own2, ...tankards.filter((t) => t.holder.id !== actor.id)]) {
       if (missing <= 0) break;
       const people = use.tankards[entry.key] ?? [];
       const limit = TANKARD_WATER_PEOPLE - (keptForHolder(entry, tankards, use, actor) ? 1 : 0);
@@ -4197,9 +4622,9 @@ function planProvisions(actor, want, { external } = {}) {
       if (missing <= 0) break;
       for (const item of source.items) {
         if (missing <= 0 || !feeds(item, kind)) continue;
-        const left = usesLeft(item) - (used.get(item.uuid) ?? 0);
-        if (left <= 0) continue;
-        const uses = Math.min(left, toPortions(missing, kind));
+        const left2 = usesLeft(item) - (used.get(item.uuid) ?? 0);
+        if (left2 <= 0) continue;
+        const uses = Math.min(left2, toPortions(missing, kind));
         const units = uses;
         used.set(item.uuid, (used.get(item.uuid) ?? 0) + uses);
         if (provisionKind(item) === "both") {
@@ -4427,8 +4852,8 @@ function evaluate(session) {
           }
           case "item": {
             if (!feeds(src.item, kind)) break;
-            const left = usesLeft(src.item) - (itemUsed.get(key) ?? 0);
-            const uses = Math.max(0, Math.min(left, toPortions(want, kind)));
+            const left2 = usesLeft(src.item) - (itemUsed.get(key) ?? 0);
+            const uses = Math.max(0, Math.min(left2, toPortions(want, kind)));
             if (uses > 0) {
               itemUsed.set(key, (itemUsed.get(key) ?? 0) + uses);
               granted = uses;
@@ -4477,8 +4902,8 @@ function propose(session) {
       const candidates = [];
       if (session.external[kind] !== "none") candidates.push("external");
       if (kind === "water") {
-        const own = tankards.filter((t) => t.holder.id === id);
-        for (const t of [...own, ...tankards.filter((t2) => t2.holder.id !== id)]) candidates.push(sourceId("tankard", t.holder, t.item));
+        const own2 = tankards.filter((t) => t.holder.id === id);
+        for (const t of [...own2, ...tankards.filter((t2) => t2.holder.id !== id)]) candidates.push(sourceId("tankard", t.holder, t.item));
         for (const j of jugs) if (jugGives(j.key, "water")) candidates.push(sourceId("jug", j.holder, j.item));
       }
       for (const holder of provisionSources(actor)) {
@@ -4884,8 +5309,8 @@ async function chooseMeal(actor, lack) {
     logError("Could not plan provisions for a rest", err);
     preview = `<p class="notes">${esc(loc("Provisions.Rest.NoGM"))}</p>`;
   }
-  const box = (name, label2, amount) => amount > 0 ? `<label class="checkbox">
-      <input type="checkbox" name="${name}" checked> ${esc(loc(label2, { amount: fmt(amount) }))}</label>` : "";
+  const box = (name, label2, amount2) => amount2 > 0 ? `<label class="checkbox">
+      <input type="checkbox" name="${name}" checked> ${esc(loc(label2, { amount: fmt(amount2) }))}</label>` : "";
   return foundry.applications.api.DialogV2.prompt({
     window: { title: loc("Provisions.Rest.DialogTitle", { actor: actor.name }), icon: "fa-solid fa-utensils" },
     classes: ["pack-ledger-provisions-dialog"],
@@ -5202,12 +5627,12 @@ function getRestMealAppClass() {
       return root;
     }
     /** One line: the source chosen (with what is left of it) and the amount. */
-    #row(row, index, res, sources, left, running2) {
+    #row(row, index, res, sources, left2, running2) {
       const option = (src) => {
         let label2;
         if (src.type === "external") label2 = loc("Provisions.Rest.External");
         else {
-          const rest = left[src.id] ?? 0;
+          const rest = left2[src.id] ?? 0;
           const leftText = src.type === "item" ? loc("Provisions.Session.LeftUses", { n: number(rest) }) : loc("Provisions.Session.LeftPlaces", { n: number(rest) });
           label2 = `${src.item.name} (${src.holder.name}): ${leftText}`;
         }
@@ -5299,9 +5724,9 @@ function getRestMealAppClass() {
     static async #onForce() {
       const session = restSession();
       if (!session) return;
-      const open = session.voters.filter((id) => session.votes[id] !== "yes");
-      if (open.length) {
-        const names = open.map((id) => game.users.get(id)?.name ?? "?").join(", ");
+      const open2 = session.voters.filter((id) => session.votes[id] !== "yes");
+      if (open2.length) {
+        const names = open2.map((id) => game.users.get(id)?.name ?? "?").join(", ");
         const sure = await foundry.applications.api.DialogV2.confirm({
           window: { title: loc("Provisions.Session.Force") },
           content: `<p>${esc(loc("Provisions.Session.ForceConfirm", { names }))}</p>`,
@@ -5358,9 +5783,19 @@ var ACCOUNTS_SETTING = "fundAccounts";
 var HOLDINGS_FLAG = "fundAccounts";
 var MAIN_ACCOUNT = "main";
 var flags = (actor) => actor?.flags?.[MODULE_ID] ?? {};
+function cleanGoal(value) {
+  const goal = Math.floor(Number(value));
+  return Number.isFinite(goal) && goal > 0 ? goal : void 0;
+}
 function fundAccounts() {
   const stored = getSetting(ACCOUNTS_SETTING);
-  const list = (Array.isArray(stored) ? stored : []).filter((a) => a && typeof a.id === "string" && a.id).map((a) => ({ id: a.id, name: String(a.name ?? "") }));
+  const list = (Array.isArray(stored) ? stored : []).filter((a) => a && typeof a.id === "string" && a.id).map((a) => {
+    const account = { id: a.id, name: String(a.name ?? "") };
+    const goal = cleanGoal(a.goal);
+    if (goal !== void 0) account.goal = goal;
+    if (typeof a.reached === "boolean") account.reached = a.reached;
+    return account;
+  });
   if (!list.some((a) => a.id === MAIN_ACCOUNT)) list.unshift({ id: MAIN_ACCOUNT, name: "" });
   return list;
 }
@@ -5371,23 +5806,37 @@ function holdingsOf(actor, purse = coinsOf(actor)) {
   const noted = flags(actor)[HOLDINGS_FLAG];
   if (!noted || typeof noted !== "object") return {};
   const accounts = fundAccounts();
-  const order = [...accounts.filter((a) => a.id !== MAIN_ACCOUNT), ...accounts.filter((a) => a.id === MAIN_ACCOUNT)].filter((a) => noted[a.id]).map((a) => ({ id: a.id, want: coinsOf(noted[a.id]), got: emptyCoins() }));
-  const left = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d])]));
+  const order = [...accounts.filter((a) => a.id !== MAIN_ACCOUNT), ...accounts.filter((a) => a.id === MAIN_ACCOUNT)].filter((a) => noted[a.id]).map((a) => ({ id: a.id, want: coinsOf(noted[a.id]), got: emptyCoins(), worth: 0 }));
+  const left2 = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d])]));
+  let worth = toCopper(left2);
+  for (const entry of order) {
+    entry.worth = Math.max(0, Math.min(toCopper(entry.want), worth));
+    worth -= entry.worth;
+  }
+  const shortOf = (entry) => entry.worth - toCopper(entry.got);
   for (const entry of order) {
     for (const d of DENOMINATIONS) {
-      const n = Math.max(0, Math.min(entry.want[d], left[d]));
+      const n = Math.max(0, Math.min(entry.want[d], left2[d], Math.floor(shortOf(entry) / COPPER[d])));
       entry.got[d] += n;
-      left[d] -= n;
+      left2[d] -= n;
     }
   }
   for (const entry of order) {
-    let short = toCopper(entry.want) - toCopper(entry.got);
+    let short = shortOf(entry);
     for (const d of DENOMINATIONS) {
       if (short <= 0) break;
-      const n = Math.min(left[d], Math.floor(short / COPPER[d]));
+      const n = Math.min(left2[d], Math.floor(short / COPPER[d]));
       entry.got[d] += n;
-      left[d] -= n;
+      left2[d] -= n;
       short -= n * COPPER[d];
+    }
+    if (short > 0) {
+      const coin = [...DENOMINATIONS].reverse().find((d) => left2[d] > 0 && COPPER[d] > short);
+      if (coin) {
+        left2[coin] -= 1;
+        Object.assign(entry.got, add(entry.got, inCoins(short)));
+        Object.assign(left2, add(left2, inCoins(COPPER[coin] - short)));
+      }
     }
   }
   const result = {};
@@ -5411,6 +5860,19 @@ function fundSpent(actor, after) {
     account,
     coins: inCoins(Math.max(0, toCopper(now[account.id]) - toCopper(then[account.id] ?? emptyCoins())))
   })).filter((s) => !isZero(s.coins));
+}
+var accountTotal = (id, members) => members.reduce((total, m) => add(total, holdingOf(m, id)), emptyCoins());
+function goalProgress(account, total) {
+  const goal = account.goal;
+  if (!goal) return null;
+  const copper = toCopper(total);
+  return { current: copper / COPPER.gp, goal, percent: Math.min(100, copper / goal), reached: copper >= goal * COPPER.gp };
+}
+function goalChange(account, total) {
+  const reached = goalProgress(account, total)?.reached ?? false;
+  if (reached && !account.reached) return "reached";
+  if (!reached && account.reached) return "lost";
+  return null;
 }
 
 // src/ui/fund-warning.ts
@@ -5449,21 +5911,25 @@ function stackQuantity(item) {
   if (item?.type === "container") return 1;
   return Math.max(1, Math.floor(Number(item?.system?.quantity ?? 1)) || 1);
 }
+function pieces(item) {
+  if (item?.type === "container") return 1;
+  return Math.max(0, Math.floor(Number(item?.system?.quantity ?? 1)) || 0);
+}
 function topLevel(actor) {
   return actor.items.filter((i) => isPhysicalData(i) && !actor.items.has(i.system?.container));
 }
 function descendants(actor, item) {
   if (item.type !== "container") return [];
   const result = [];
-  const queue7 = [item.id];
-  const seen = new Set(queue7);
-  while (queue7.length) {
-    const id = queue7.shift();
+  const queue8 = [item.id];
+  const seen = new Set(queue8);
+  while (queue8.length) {
+    const id = queue8.shift();
     for (const child of actor.items) {
       if (child.system?.container !== id || seen.has(child.id)) continue;
       seen.add(child.id);
       result.push(child);
-      queue7.push(child.id);
+      queue8.push(child.id);
     }
   }
   return result;
@@ -5472,7 +5938,7 @@ function remapIds(items) {
   const map = new Map(items.map((i) => [i._id, foundry.utils.randomID()]));
   for (const item of items) {
     item._id = map.get(item._id);
-    if (item.system) item.system.container = map.get(item.system.container) ?? null;
+    if (item.system) item.system.container = (item.system.container ? map.get(item.system.container) : null) ?? null;
   }
   return items;
 }
@@ -5502,18 +5968,42 @@ function maskConsumable(data) {
   };
   return data;
 }
+function canonical(value) {
+  if (value === void 0 || value === null) return void 0;
+  if (Array.isArray(value)) return `[${value.map((v) => canonical(v) ?? "null").join(",")}]`;
+  if (typeof value !== "object") return JSON.stringify(value);
+  const parts = Object.keys(value).sort().flatMap((k) => {
+    const v = canonical(value[k]);
+    return v === void 0 || v === "{}" ? [] : [`${JSON.stringify(k)}:${v}`];
+  });
+  return `{${parts.join(",")}}`;
+}
+function stackKey(source) {
+  const { _id, _stats, sort, folder, ownership, flags: flags2, system, effects, ...rest } = source ?? {};
+  const { quantity, container, equipped, ...ownSystem } = system ?? {};
+  const { core, ...ownFlags } = flags2 ?? {};
+  return canonical({
+    ...rest,
+    system: ownSystem,
+    flags: ownFlags,
+    effects: (Array.isArray(effects) ? effects : []).map(({ _id: _id2, _stats: _stats2, origin, ...effect }) => effect)
+  });
+}
+var usesSpent = (source) => Number(source?.system?.uses?.spent) > 0;
 function sameStack(item, data) {
   if (!item || !data || item.type !== data.type || item.type === "container") return false;
-  return (item._source?.name ?? item.name) === data.name && item.img === data.img && (item._source.system?.weight?.value ?? 0) === (data.system?.weight?.value ?? 0) && (item._source.system?.identified ?? true) === (data.system?.identified ?? true);
+  const source = item._source ?? item.toObject?.() ?? item;
+  if (usesSpent(source) || usesSpent(data)) return false;
+  return stackKey(source) === stackKey(data);
 }
 async function mergeIntoStack(actor, data, options = {}) {
   if (!data || data.type === "container") return null;
   const matches = actor.items.filter((i) => sameStack(i, data)).sort((a, b) => Number(!!a.system?.container) - Number(!!b.system?.container));
   const add2 = stackQuantity(data);
   for (const item of matches) {
-    const previous = stackQuantity(item);
+    const previous = pieces(item);
     const updated = await item.update({ "system.quantity": previous + add2 }, { ...options });
-    if (updated && stackQuantity(item) === previous + add2) return { item, previous };
+    if (updated && pieces(item) === previous + add2) return { item, previous };
   }
   return null;
 }
@@ -5645,10 +6135,10 @@ async function refreshAllPileLooks() {
   }
 }
 async function changeCoins(actor, amounts2, sign) {
-  const current = coinsOf2(actor);
+  const current2 = coinsOf2(actor);
   const update = {};
   for (const d of COINS) {
-    if (amounts2[d]) update[`system.currency.${d}`] = Math.max(0, current[d] + sign * amounts2[d]);
+    if (amounts2[d]) update[`system.currency.${d}`] = Math.max(0, current2[d] + sign * amounts2[d]);
   }
   if (Object.keys(update).length) await actor.update(update, BYPASS());
 }
@@ -5758,7 +6248,10 @@ var canWithdraw = (actor, id) => !!actor?.isOwner && !isZero(holdingOf(actor, id
 var holdingKey = (id) => `flags.${MODULE_ID}.${HOLDINGS_FLAG}.${id}`;
 function freeCoins(actor) {
   const purse = coinsOf(actor), fund = fundOf(actor);
-  return Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d] - fund[d])]));
+  const byCoin = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, purse[d] - fund[d])]));
+  const worth = Math.max(0, toCopper(purse) - toCopper(fund));
+  if (toCopper(byCoin) <= worth) return byCoin;
+  return settle(purse, worth) ?? byCoin;
 }
 async function addToFund(actor, coins) {
   await actor.update({ [holdingKey(MAIN_ACCOUNT)]: add(holdingOf(actor, MAIN_ACCOUNT), coins) });
@@ -5768,7 +6261,17 @@ function takesIntoFund(actor, asked2) {
   if (mode === "off") return false;
   return (asked2 || mode === "always") && partyMembers().includes(actor);
 }
-var saveAccounts = (list) => game.settings.set(MODULE_ID, ACCOUNTS_SETTING, list);
+var accountQueue = Promise.resolve();
+function mutateAccounts(change2) {
+  const task = accountQueue.then(async () => {
+    const list = fundAccounts();
+    const result = await change2(list);
+    if (result === null) return;
+    await game.settings.set(MODULE_ID, ACCOUNTS_SETTING, result ?? list);
+  });
+  accountQueue = task.catch(() => null);
+  return task;
+}
 var isEmptyAccount = (id) => game.actors.every((a) => isZero(holdingOf(a, id)));
 function requestAccount(op, data = {}) {
   if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
@@ -5779,61 +6282,108 @@ async function executeAccount(data, senderId) {
   if (!user) return;
   const member = user.isGM || partyMembers().some((a) => a.testUserPermission(user, "OWNER"));
   if (!member) return;
-  const list = fundAccounts();
-  const account = list.find((a) => a.id === data.id) ?? null;
-  switch (data.op) {
-    case "create": {
-      const name = String(data.name ?? "").trim().slice(0, 40);
-      if (!name) return;
-      if (list.some((a) => accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
-        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+  let after = null;
+  const warn = (text4) => {
+    after = () => notifyUser(user.id, "warn", text4);
+    return null;
+  };
+  await mutateAccounts(async (list) => {
+    const account = list.find((a) => a.id === data.id) ?? null;
+    switch (data.op) {
+      case "create": {
+        const name = String(data.name ?? "").trim().slice(0, 40);
+        if (!name) return null;
+        if (list.some((a) => accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+          return warn(loc("Fund.AccountExists", { account: name }));
+        }
+        const created = { id: foundry.utils.randomID(), name };
+        const goal = cleanGoal(data.goal);
+        if (goal !== void 0) {
+          created.goal = goal;
+          created.reached = goalProgress(created, accountTotal(created.id, partyMembers()))?.reached ?? false;
+        }
+        after = () => notifyUser(user.id, "info", loc("Fund.AccountCreated", { account: name }));
+        return [...list, created];
       }
-      await saveAccounts([...list, { id: foundry.utils.randomID(), name }]);
-      return notifyUser(user.id, "info", loc("Fund.AccountCreated", { account: name }));
-    }
-    case "rename": {
-      const name = String(data.name ?? "").trim().slice(0, 40);
-      if (!account || !name) return;
-      if (list.some((a) => a !== account && accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
-        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+      case "edit": {
+        if (!account) return null;
+        const named = data.name !== void 0;
+        const name = named ? String(data.name).trim().slice(0, 40) : accountName(account);
+        if (named) {
+          if (!name && account.id !== MAIN_ACCOUNT) return null;
+          if (name && list.some((a) => a !== account && accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) {
+            return warn(loc("Fund.AccountExists", { account: name }));
+          }
+        }
+        const old = accountName(account);
+        const oldGoal = account.goal;
+        if (named) account.name = account.id === MAIN_ACCOUNT && name === old ? account.name : name;
+        if (data.goal !== void 0) {
+          const goal = cleanGoal(data.goal);
+          if (goal === void 0) delete account.goal;
+          else account.goal = goal;
+        }
+        if (account.goal !== oldGoal) {
+          if (account.goal) account.reached = goalProgress(account, accountTotal(account.id, partyMembers()))?.reached ?? false;
+          else delete account.reached;
+        }
+        const shown = accountName(account);
+        after = () => {
+          if (shown !== old) notifyUser(user.id, "info", loc("Fund.AccountRenamed", { old, account: shown }));
+          if (account.goal !== oldGoal) {
+            notifyUser(user.id, "info", account.goal ? loc("Fund.GoalSet", { account: shown, goal: account.goal }) : loc("Fund.GoalRemoved", { account: shown }));
+          }
+        };
+        return list;
       }
-      const old = accountName(account);
-      account.name = name;
-      await saveAccounts(list);
-      return notifyUser(user.id, "info", loc("Fund.AccountRenamed", { old, account: name }));
-    }
-    case "delete": {
-      if (!account || account.id === MAIN_ACCOUNT) return;
-      if (!user.isGM && !isEmptyAccount(account.id)) return notifyUser(user.id, "warn", loc("Fund.NotEmpty", { account: accountName(account) }));
-      for (const actor of game.actors) {
-        if (actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG]?.[account.id]) await actor.update({ [holdingKey(account.id)]: emptyCoins() });
+      case "delete": {
+        if (!account || account.id === MAIN_ACCOUNT) return null;
+        if (!user.isGM && !isEmptyAccount(account.id)) return warn(loc("Fund.NotEmpty", { account: accountName(account) }));
+        for (const actor of game.actors) {
+          if (actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG]?.[account.id]) await actor.update({ [holdingKey(account.id)]: emptyCoins() });
+        }
+        after = () => notifyUser(user.id, "info", loc("Fund.AccountDeleted", { account: accountName(account) }));
+        return list.filter((a) => a !== account);
       }
-      await saveAccounts(list.filter((a) => a !== account));
-      return notifyUser(user.id, "info", loc("Fund.AccountDeleted", { account: accountName(account) }));
+      default:
+        return null;
     }
-  }
+  });
+  after?.();
 }
 async function openAccountDialog(accountId) {
   const account = accountId ? accountOf(accountId) : null;
   if (accountId && !account) return;
   const result = await foundry.applications.api.DialogV2.prompt({
-    window: { title: loc(account ? "Fund.RenameAccount" : "Fund.NewAccount"), icon: `fa-solid ${account ? "fa-pen" : "fa-sack-dollar"}` },
+    window: { title: loc(account ? "Fund.EditAccount" : "Fund.NewAccount"), icon: `fa-solid ${account ? "fa-pen" : "fa-sack-dollar"}` },
     content: `<div class="form-group">
         <label>${esc(loc("Fund.AccountName"))}</label>
         <div class="form-fields"><input type="text" name="name" maxlength="40" required autofocus
           value="${esc(account ? accountName(account) : "")}" placeholder="${esc(loc("Fund.AccountPlaceholder"))}"></div>
       </div>
+      <div class="form-group">
+        <label>${esc(loc("Fund.Goal"))}</label>
+        <div class="form-fields"><input type="number" name="goal" min="0" step="1" value="${account?.goal ?? ""}"></div>
+        <p class="hint">${esc(loc("Fund.GoalHint"))}</p>
+      </div>
       ${account ? "" : `<p class="hint">${esc(loc("Fund.AccountHint"))}</p>`}`,
     ok: {
-      label: loc(account ? "Fund.RenameAccount" : "Fund.Create"),
+      label: loc(account ? "Fund.EditAccount" : "Fund.Create"),
       icon: `fa-solid ${account ? "fa-check" : "fa-plus"}`,
-      callback: (event, button2) => ({ name: String(button2.form.elements.name?.value ?? "").trim() })
+      callback: (event, button2) => ({
+        name: String(button2.form.elements.name?.value ?? "").trim(),
+        goal: Number(button2.form.elements.goal?.value) || null
+      })
     },
     rejectClose: false
   });
   if (!result?.name) return;
   if (account) {
-    if (result.name !== accountName(account)) requestAccount("rename", { id: account.id, name: result.name });
+    const goal = cleanGoal(result.goal) ?? null;
+    const renamed = result.name !== accountName(account);
+    if (renamed || goal !== (account.goal ?? null)) {
+      requestAccount("edit", { id: account.id, goal, ...renamed ? { name: result.name } : {} });
+    }
   } else requestAccount("create", result);
 }
 function coinInputs(most, emptyText) {
@@ -5856,16 +6406,16 @@ function readForm(form) {
 var accountOption = (a, selected) => ({ value: a.id, text: accountName(a), selected });
 async function openDepositDialog(actor, accountId) {
   if (fundMode() === "off") return;
-  const own = depositors();
-  actor ??= own.find((a) => a === game.user.character) ?? own[0];
-  if (!actor || !own.includes(actor)) return ui.notifications.warn(loc("Fund.NoDepositor"));
+  const own2 = depositors();
+  actor ??= own2.find((a) => a === game.user.character) ?? own2[0];
+  if (!actor || !own2.includes(actor)) return ui.notifications.warn(loc("Fund.NoDepositor"));
   const accounts = fundAccounts();
   const chosenAccount = accounts.find((a) => a.id === accountId) ?? accounts[0];
   const rows = (a) => coinInputs(freeCoins(a), loc("Fund.NothingFree", { actor: a.name }));
-  const content = `${own.length > 1 ? select(
+  const content = `${own2.length > 1 ? select(
     "actorId",
     loc("Fund.Depositor"),
-    own.map((a) => ({ value: a.id, text: a.name, selected: a === actor }))
+    own2.map((a) => ({ value: a.id, text: a.name, selected: a === actor }))
   ) : ""}
     ${select("accountId", loc("Fund.Account"), accounts.map((a) => accountOption(a, a === chosenAccount)))}
     <div class="pl-deposit-coins">${rows(actor)}</div>
@@ -5886,7 +6436,7 @@ async function openDepositDialog(actor, accountId) {
   });
   if (!result) return;
   const chosen = result.actorId ? game.actors.get(result.actorId) : actor;
-  if (!chosen || !own.includes(chosen)) return;
+  if (!chosen || !own2.includes(chosen)) return;
   await deposit(chosen, result.accountId ?? chosenAccount.id, coinsOf(result));
 }
 async function deposit(actor, accountId, coins) {
@@ -5956,9 +6506,9 @@ async function withdraw(actor, accountId, coins) {
 async function announceShare(member, coins, { by, from, account = "", skip }) {
   const whisper = game.users.filter((u) => !u.isGM && u.id !== skip && member.testUserPermission(u, "OWNER")).map((u) => u.id);
   if (!whisper.length || isZero(coins)) return;
-  const text3 = account ? loc("Coins.Share.ChatAccount", { by: by.name, account }) : from ? loc("Coins.Share.ChatPile", { by: by.name, from }) : loc("Coins.Share.ChatFund", { by: by.name });
+  const text4 = account ? loc("Coins.Share.ChatAccount", { by: by.name, account }) : from ? loc("Coins.Share.ChatPile", { by: by.name, from }) : loc("Coins.Share.ChatFund", { by: by.name });
   const content = `<div class="pack-ledger-share">
-    <p>${esc(text3)}</p>
+    <p>${esc(text4)}</p>
     <p class="share">${locCoins("Coins.Share.ChatGets", { actor: member.name }, coins)}</p>
   </div>`;
   try {
@@ -6050,8 +6600,8 @@ async function openFundDialog(actor) {
 }
 var preconfirmed = /* @__PURE__ */ new Set();
 function asked(options) {
-  const own = options?.[MODULE_ID];
-  return !!(own?.bypass || own?.fundConfirmed || own?.notifyUser || own?.coins === "trade" || own?.currency?.source === "invoice");
+  const own2 = options?.[MODULE_ID];
+  return !!(own2?.bypass || own2?.fundConfirmed || own2?.notifyUser || own2?.coins === "trade" || own2?.coins === "shop" || own2?.currency?.source === "invoice");
 }
 function warnFundSpend(actor, changes, options, userId) {
   if (userId !== game.user.id || asked(options) || preconfirmed.has(actor.uuid) || isZero(fundOf(actor))) return;
@@ -6088,9 +6638,9 @@ function guardCurrencyManager() {
   };
   if (typeof Manager.deductActorCurrency === "function") {
     const deduct = Manager.deductActorCurrency;
-    Manager.deductActorCurrency = async function(actor, amount, denomination, options = {}) {
-      if (actor?.documentName === "Actor" && amount > 0 && typeof this.getActorCurrencyUpdates === "function") {
-        const { remainder, ...updates } = this.getActorCurrencyUpdates(actor, amount, denomination, options) ?? {};
+    Manager.deductActorCurrency = async function(actor, amount2, denomination, options = {}) {
+      if (actor?.documentName === "Actor" && amount2 > 0 && typeof this.getActorCurrencyUpdates === "function") {
+        const { remainder, ...updates } = this.getActorCurrencyUpdates(actor, amount2, denomination, options) ?? {};
         const changed = foundry.utils.expandObject(updates ?? {}).system?.currency;
         if (!remainder && changed && typeof changed === "object") {
           const purse = coinsOf(actor);
@@ -6098,13 +6648,13 @@ function guardCurrencyManager() {
           if (!await confirmFundSpend(actor, after)) throw new Error(loc("Fund.SpendCancelled", { actor: actor.name }));
           preconfirmed.add(actor.uuid);
           try {
-            return await deduct.call(this, actor, amount, denomination, options);
+            return await deduct.call(this, actor, amount2, denomination, options);
           } finally {
             preconfirmed.delete(actor.uuid);
           }
         }
       }
-      return deduct.call(this, actor, amount, denomination, options);
+      return deduct.call(this, actor, amount2, denomination, options);
     };
   }
 }
@@ -6140,8 +6690,42 @@ function onRenderActorSheet(app, element) {
     currency.append(chip);
   }
 }
+async function checkGoals() {
+  if (game.user !== game.users.activeGM || fundMode() === "off") return;
+  const members = partyMembers();
+  const reached = [];
+  await mutateAccounts((list) => {
+    let changed = false;
+    for (const account of list) {
+      const change2 = goalChange(account, accountTotal(account.id, members));
+      if (!change2) continue;
+      account.reached = change2 === "reached";
+      changed = true;
+      if (change2 === "reached") reached.push(account);
+    }
+    return changed ? list : null;
+  });
+  for (const account of reached) {
+    try {
+      const text4 = loc("Fund.GoalReached", { account: accountName(account), goal: account.goal });
+      await ChatMessage.implementation.create({
+        speaker: { alias: loc("Fund.GoalSpeaker") },
+        content: `<div class="pack-ledger-goal"><p>${esc(text4)}</p></div>`,
+        flags: { [MODULE_ID]: { fundGoal: account.id } }
+      });
+    } catch (err) {
+      logError(`Could not announce the savings goal of ${accountName(account)}`, err);
+    }
+  }
+}
+var scheduleGoals = foundry.utils.debounce(
+  () => checkGoals().catch((err) => logError("Could not check the savings goals of the group fund", err)),
+  300
+);
 function onUpdateActor2(actor, changes) {
-  if (game.user !== game.users.activeGM || !foundry.utils.hasProperty(changes, "system.currency")) return;
+  if (game.user !== game.users.activeGM) return;
+  if (foundry.utils.hasProperty(changes, "system.currency") || foundry.utils.hasProperty(changes, `flags.${MODULE_ID}.${HOLDINGS_FLAG}`)) scheduleGoals();
+  if (!foundry.utils.hasProperty(changes, "system.currency")) return;
   const noted = actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG];
   if (!noted || typeof noted !== "object") return;
   const held = holdingsOf(actor);
@@ -6160,6 +6744,7 @@ Hooks.once("init", () => {
   Hooks.on("updateActor", onUpdateActor2);
 });
 Hooks.once("ready", () => {
+  scheduleGoals();
   try {
     guardCurrencyManager();
   } catch (err) {
@@ -6209,7 +6794,7 @@ function getProvisionsAppClass() {
         depositFund: (event, target) => openDepositDialog(void 0, target.dataset.accountId),
         withdrawFund: PackLedgerProvisionsApp.#onWithdrawFund,
         newAccount: () => openAccountDialog(),
-        renameAccount: (event, target) => openAccountDialog(target.dataset.accountId),
+        editAccount: (event, target) => openAccountDialog(target.dataset.accountId),
         deleteAccount: PackLedgerProvisionsApp.#onDeleteAccount,
         refillWater: PackLedgerProvisionsApp.#onRefillWater,
         switchList: PackLedgerProvisionsApp.#onSwitchList
@@ -6307,6 +6892,7 @@ function getProvisionsAppClass() {
             <button type="button" data-action="newAccount"><i class="fa-solid fa-plus" inert></i> ${esc(loc("Fund.NewAccount"))}</button>
           </div>` : ""}
         </section>`;
+      const fmt2 = (n) => n.toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
       const cards = fundAccounts().map((account) => {
         const id = account.id;
         const holders2 = members.filter((m) => !isZero(holdingOf(m, id)));
@@ -6317,7 +6903,7 @@ function getProvisionsAppClass() {
           canPay ? button2("depositFund", "fa-piggy-bank", loc("Fund.Deposit")) : "",
           // Only coins of the own characters are shared out.
           members.length > 1 && holders2.some((m) => m.isOwner) ? button2("splitFund", "fa-scale-balanced", loc("Fund.Split")) : "",
-          canPay || game.user.isGM ? button2("renameAccount", "fa-pen", loc("Fund.RenameAccount")) : "",
+          canPay || game.user.isGM ? button2("editAccount", "fa-pen", loc("Fund.EditAccount")) : "",
           // Players remove only purposes without coins.
           id !== MAIN_ACCOUNT && (game.user.isGM || canPay && isEmptyAccount(id)) ? button2("deleteAccount", "fa-trash", loc("Fund.DeleteAccount"), `${loc("Fund.DeleteAccount")}: ${loc("Fund.DeleteHint")}`) : ""
         ].join("");
@@ -6329,6 +6915,11 @@ function getProvisionsAppClass() {
             <a data-action="openActor" data-actor-id="${m.id}"><img src="${esc(m.img)}" alt=""><span class="name">${esc(m.name)}</span></a>
             <span class="pl-fund-holding">${coinsHtml(holdingOf(m, id))}</span>${out}</li>`;
         }).join("");
+        const progress = goalProgress(account, sum);
+        const goal = progress ? `<div class="pl-fund-goal ${progress.reached ? "reached" : ""}">
+            <div class="pl-fund-goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress.percent)}"><span style="width:${progress.percent}%"></span></div>
+            <span class="pl-fund-goal-text">${progress.reached ? '<i class="fa-solid fa-check" inert></i> ' : ""}${esc(loc("Fund.GoalProgress", { current: fmt2(progress.current), goal: fmt2(progress.goal) }))}</span>
+          </div>` : "";
         return `<section class="pl-provisions-card pl-fund-card">
           <header>
             <i class="fa-solid fa-sack-dollar pl-fund-icon" inert></i>
@@ -6336,6 +6927,7 @@ function getProvisionsAppClass() {
             ${buttons ? `<div class="pl-fund-buttons">${buttons}</div>` : ""}
           </header>
           <div class="pl-fund-coins">${isZero(sum) ? `<span class="pl-none">${esc(loc("Fund.None"))}</span>` : coinsHtml(sum)}</div>
+          ${goal}
           ${rows ? `<ul class="pl-items pl-fund-rows">${rows}</ul>` : ""}
         </section>`;
       }).join("");
@@ -6665,7 +7257,8 @@ function isPairedWeapon(item) {
 }
 function slotCost(items, slot, quantities = {}) {
   if (slot !== "weapon") return items.length;
-  const count = (item) => Math.max(1, Math.floor(Number(quantities[item.id] ?? item.system?.quantity ?? 1)) || 1);
+  const given = (item) => typeof quantities === "function" ? quantities(item) : quantities[item.id];
+  const count = (item) => Math.max(1, Math.floor(Number(given(item) ?? item.system?.quantity ?? 1)) || 1);
   let others = 0;
   let daggers = 0;
   for (const item of items) {
@@ -6721,14 +7314,20 @@ function checkTopLevel(actor, item, { pendingSlots = {}, weight: weightOverride,
     return { ok: false, reason: "mustStow", slot: null };
   }
   const max = getLimit(slot);
-  const claimed = pendingSlots[slot] ?? /* @__PURE__ */ new Set();
+  const claimed = pendingSlots[slot] ?? /* @__PURE__ */ new Map();
   const others = topLevelItems(actor, item.id).filter((i) => getSlot(i) === slot && !claimed.has(i.id));
-  const quantities = quantity !== void 0 && item.id ? { [item.id]: quantity } : {};
-  const used = slotCost([...others, item], slot, quantities) + claimed.size;
+  const earlier = [...claimed.entries()].filter(([id, c]) => c.item !== item && (!item.id || id !== item.id));
+  const counts = new Map(earlier.map(([, c]) => [c.item, c.quantity]));
+  counts.set(item, quantity);
+  const used = slotCost(
+    [...others, ...earlier.map(([, c]) => c.item), item],
+    slot,
+    (i) => counts.has(i) ? counts.get(i) : void 0
+  );
   if (used > max) return { ok: false, reason: "slotFull", slot, max };
   return { ok: true, slot };
 }
-function findStowTarget(actor, item, options, { additions = [], containers = [] } = {}) {
+function findStowTarget(actor, item, options, { additions = [], containers = [], created } = {}) {
   const count = itemCount(item);
   const weightIn = (units) => itemWeightIn(item, units);
   const water = isWater(item);
@@ -6743,7 +7342,11 @@ function findStowTarget(actor, item, options, { additions = [], containers = [] 
   const takes = (holds) => !!holds && AMMO_CONTAINERS[holds]?.compartments.some((c) => c.kinds.includes(kind));
   const fits = (holds) => !rulesOn || (holds ? takes(holds) : !needsAmmoContainer(item));
   const wet = (waterskin) => !waterskin || !waterskinRulesActive() || water;
-  const stub = containers.find((c) => c.id !== item.id && fits(c.ammo) && wet(!!c.waterskin));
+  const roomIn = (c) => {
+    const doc = created?.get?.(c.id);
+    return !doc || !findOverflow(doc, { count, weightIn, pending: additions, item });
+  };
+  const stub = containers.find((c) => c.id !== item.id && fits(c.ammo) && wet(!!c.waterskin) && roomIn(c));
   if (stub) return stub;
   if (Array.isArray(options.data)) {
     const data = options.data.find((d) => d.type === "container" && d._id && d._id !== item.id && !d.system?.container && (!isJugName(d.name) && d.flags?.[MODULE_ID]?.[FLAG_SLOT] !== "jug" || water && isWaterskinKind(d)) && fits(ammoContainerKind(d)) && wet(isWaterskinKind(d)));
@@ -6910,8 +7513,8 @@ async function requestSplitCoins(token, { containerId = null } = {}) {
 }
 var addCoins = (a, b) => Object.fromEntries(COINS.map((d) => [d, (a[d] ?? 0) + (b[d] ?? 0)]));
 async function promptCoins(actor) {
-  const own = coinsOf2(actor);
-  const available = COINS.filter((d) => own[d] > 0);
+  const own2 = coinsOf2(actor);
+  const available = COINS.filter((d) => own2[d] > 0);
   if (!available.length) {
     ui.notifications.warn(loc("Notify.NoCoins", { actor: actor.name }));
     return null;
@@ -6923,9 +7526,9 @@ async function promptCoins(actor) {
       <div class="form-group">
         <label>${esc2(label2)}</label>
         <div class="form-fields">
-          <input type="number" name="${d}" min="0" max="${own[d]}" step="1" value="0">
-          <button type="button" class="pack-ledger-coin-all" data-coin="${d}" data-max="${own[d]}">
-            ${esc2(loc("Pile.CoinsAll", { max: own[d] }))}
+          <input type="number" name="${d}" min="0" max="${own2[d]}" step="1" value="0">
+          <button type="button" class="pack-ledger-coin-all" data-coin="${d}" data-max="${own2[d]}">
+            ${esc2(loc("Pile.CoinsAll", { max: own2[d] }))}
           </button>
         </div>
       </div>`;
@@ -6949,7 +7552,7 @@ async function promptCoins(actor) {
     rejectClose: false
   });
   if (!result) return null;
-  const amounts2 = Object.fromEntries(COINS.map((d) => [d, Math.clamp(Math.floor(Number(result[d]) || 0), 0, own[d])]));
+  const amounts2 = Object.fromEntries(COINS.map((d) => [d, Math.clamp(Math.floor(Number(result[d]) || 0), 0, own2[d])]));
   if (!hasCoins(amounts2)) {
     ui.notifications.warn(loc("Notify.NoCoinsChosen"));
     return null;
@@ -7248,12 +7851,12 @@ function makeChip({ icon, label: label2, used, max, items, over, full, maxWeight
   chip.dataset.tooltipText = items.map((i2) => i2.name).join(", ") || "\u2013";
   const i = document.createElement("i");
   i.className = icon;
-  const text3 = document.createElement("span");
-  text3.textContent = label2;
+  const text4 = document.createElement("span");
+  text4.textContent = label2;
   const count = document.createElement("span");
   count.className = "count";
   count.textContent = max === void 0 ? String(used) : `${used}/${max}`;
-  chip.append(i, text3, count);
+  chip.append(i, text4, count);
   if (maxWeight) {
     const w = document.createElement("span");
     w.className = "weight";
@@ -7400,7 +8003,7 @@ function besideToken(token) {
 function dropBesideToken(item, token) {
   return dropItem(item, { scene: token.parent, ...besideToken(token) });
 }
-function buildSlotSelect(item, current, name) {
+function buildSlotSelect(item, current2, name) {
   const detected = detectSlot(item);
   const autoLabel = detected ? loc("Slots.auto", { slot: slotLabel(detected) }) : loc("Slots.autoNone");
   const options = [
@@ -7409,7 +8012,7 @@ function buildSlotSelect(item, current, name) {
     ...SPECIAL_SLOTS.map((s) => [s, slotLabel(s)])
   ];
   const html = options.map(
-    ([value, label2]) => `<option value="${esc(value)}"${value === current ? " selected" : ""}>${esc(label2)}</option>`
+    ([value, label2]) => `<option value="${esc(value)}"${value === current2 ? " selected" : ""}>${esc(label2)}</option>`
   ).join("");
   return `<select name="${esc(name)}">${html}</select>`;
 }
@@ -7419,11 +8022,11 @@ function applySlot(item, value) {
 }
 async function openSlotDialog(item) {
   if (!game.user.isGM) return;
-  const current = getSlotOverride(item) ?? "";
+  const current2 = getSlotOverride(item) ?? "";
   const content = `
     <div class="form-group">
       <label>${esc(loc("Dialog.SlotLabel"))}</label>
-      <div class="form-fields">${buildSlotSelect(item, current, "slot")}</div>
+      <div class="form-fields">${buildSlotSelect(item, current2, "slot")}</div>
       <p class="hint">${esc(loc("Dialog.SlotHint"))}</p>
     </div>`;
   const result = await foundry.applications.api.DialogV2.prompt({
@@ -7500,7 +8103,7 @@ function moduleOptions(options) {
 function pendingState(options) {
   const mod = moduleOptions(options);
   if (!mod.pending) {
-    Object.defineProperty(mod, "pending", { value: { additions: [], slots: {}, containers: [] }, enumerable: false });
+    Object.defineProperty(mod, "pending", { value: { additions: [], slots: {}, containers: [], created: /* @__PURE__ */ new Map() }, enumerable: false });
   }
   return mod.pending;
 }
@@ -7632,17 +8235,17 @@ function resolveOverflow(item, overflow, options, retry) {
   return true;
 }
 function checkContainer(item, container, { count, weightIn, excludeId, options, retry }) {
-  const pending = pendingState(options);
-  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending.additions, item });
+  const pending2 = pendingState(options);
+  const overflow = findOverflow(container, { count, weightIn, excludeId, pending: pending2.additions, item });
   if (overflow && !resolveOverflow(item, overflow, options, retry)) return false;
-  pending.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn, item });
+  pending2.additions.push({ containerId: container.id, itemId: excludeId, count, weightIn, item });
   return true;
 }
 function checkSlot(actor, item, options, { weight, quantity } = {}) {
-  const pending = pendingState(options);
-  const check = checkTopLevel(actor, item, { pendingSlots: pending.slots, weight, quantity });
+  const pending2 = pendingState(options);
+  const check = checkTopLevel(actor, item, { pendingSlots: pending2.slots, weight, quantity });
   if (check.ok && check.slot && check.slot !== "free") {
-    (pending.slots[check.slot] ??= /* @__PURE__ */ new Set()).add(item.id ?? foundry.utils.randomID());
+    (pending2.slots[check.slot] ??= /* @__PURE__ */ new Map()).set(item.id ?? foundry.utils.randomID(), { item, quantity });
   }
   return check;
 }
@@ -7658,6 +8261,13 @@ function markWeightlessContents(item, options) {
   const properties = Array.from(item._source.system?.properties ?? []);
   if (!properties.includes("weightlessContents")) item.updateSource({ "system.properties": [...properties, "weightlessContents"] });
 }
+function batchContainer(actor, id, options) {
+  const seen = pendingState(options).created.get(id);
+  if (seen) return seen;
+  const data = Array.isArray(options?.data) ? options.data.find((d) => d?._id === id) : null;
+  if (data?.type !== "container") return null;
+  return { ...foundry.utils.deepClone(data), id, actor, parent: actor, flags: data.flags ?? {}, system: data.system ?? {} };
+}
 function onPreCreateItem(item, data, options) {
   markWeightlessContents(item, options);
   if (shouldSkip(item, options)) return;
@@ -7665,8 +8275,9 @@ function onPreCreateItem(item, data, options) {
   const containerId = item.system.container;
   const count = itemCount(item);
   const weightIn = (units) => itemWeightIn(item, units);
+  if (item.type === "container" && item.id) pendingState(options).created.set(item.id, item);
   if (containerId) {
-    const container = actor.items.get(containerId);
+    const container = actor.items.get(containerId) ?? batchContainer(actor, containerId, options);
     if (container?.type !== "container") return;
     const retry = (mod) => {
       const data2 = item.toObject();
@@ -7686,11 +8297,11 @@ function onPreCreateItem(item, data, options) {
   }
   const canStow = getSetting("autoStow") && item.type !== "container";
   if (canStow) {
-    const pending = pendingState(options);
-    const target = findStowTarget(actor, item, options, pending);
+    const pending2 = pendingState(options);
+    const target = findStowTarget(actor, item, options, pending2);
     if (target) {
       item.updateSource({ "system.container": target.id });
-      if (target.documentName === "Item") pending.additions.push({ containerId: target.id, count, weightIn, item });
+      if (target.documentName === "Item") pending2.additions.push({ containerId: target.id, count, weightIn, item });
       queueStowNotice(actor.name, item.name, target.name, options[MODULE_ID]?.notifyUser, `${logName(item)} \u2192 ${logName(target)}`);
       return;
     }
@@ -7811,8 +8422,8 @@ function translation(data) {
     changes.name = name;
     changes[`flags.${MODULE_ID}.autoName`] = name;
   }
-  const current = data.system?.description?.value ?? "";
-  if (flags2.autoDescription === current && current !== description) {
+  const current2 = data.system?.description?.value ?? "";
+  if (flags2.autoDescription === current2 && current2 !== description) {
     changes["system.description.value"] = description;
     changes[`flags.${MODULE_ID}.autoDescription`] = description;
   }
@@ -7854,6 +8465,326 @@ Hooks.once("init", () => {
 });
 Hooks.once("ready", () => {
   ensureAmmoContainerPack();
+});
+
+// src/core/policy/ammo-recovery.ts
+var recoveryActive = () => !!getSetting("ammoRecovery");
+function recoveryMethod() {
+  return getSetting("ammoRecoveryMethod") === "roll" ? "roll" : "half";
+}
+function recoveryTypes() {
+  const value = getSetting("ammoRecoveryTypes");
+  return Array.isArray(value) ? value.filter((v) => typeof v === "string") : [];
+}
+function countsForRecovery(item, types = recoveryTypes()) {
+  if (item?.type !== "consumable") return false;
+  const type = item.system?.type;
+  return type?.value === "ammo" && types.includes(type.subtype);
+}
+var halfBack = (shots) => Math.floor(Math.max(0, shots) / 2);
+var rollFormula = (shots) => shots < 1 ? null : `1d${shots}`;
+function roomFor(container, item, want) {
+  if (!container) return want;
+  const quantity = item.system?.quantity ?? 0;
+  const unitWeight2 = (units) => quantity ? itemWeightIn(item, units) / quantity : 0;
+  for (let n = want; n > 0; n--) {
+    if (!findOverflow(container, { count: n, item, weightIn: (units) => n * unitWeight2(units) })) return n;
+  }
+  return 0;
+}
+
+// src/feature/ammo-recovery.ts
+var MAX_PER_REPORT = 100;
+var MAX_SNAPSHOT = 5e4;
+var pending = /* @__PURE__ */ new WeakMap();
+Hooks.on("dnd5e.rollAttack", (_rolls, { subject, ammoUpdate } = {}) => {
+  try {
+    if (!subject) return;
+    pending.delete(subject);
+    const combat = game.combat;
+    if (!combat?.started || !ammoUpdate || !recoveryActive()) return;
+    const actor = subject.actor;
+    if (!actor || !combat.combatants.some((c) => c.actorId === actor.id)) return;
+    const item = actor.items.get(ammoUpdate.id);
+    if (!item || !countsForRecovery(item)) return;
+    const snapshot = item.toObject();
+    snapshot.system.quantity = 1;
+    pending.set(subject, { actor, item, combatId: combat.id, before: item.system.quantity, ammoUpdate, snapshot });
+  } catch (err) {
+    logError("Counting ammunition failed", err);
+  }
+});
+Hooks.on("dnd5e.postRollAttack", (_rolls, { subject } = {}) => {
+  try {
+    const entry = pending.get(subject);
+    if (!entry) return;
+    pending.delete(subject);
+    const count = entry.before - (entry.ammoUpdate.quantity ?? entry.before);
+    if (!(count > 0)) return;
+    requestActiveGM({
+      type: "ammoShot",
+      combatId: entry.combatId,
+      actorUuid: entry.actor.uuid,
+      itemId: entry.item.id,
+      count,
+      snapshot: entry.snapshot,
+      userId: game.user.id
+    });
+  } catch (err) {
+    logError("Reporting ammunition shot failed", err);
+  }
+});
+var queue4 = Promise.resolve();
+function serial3(handler) {
+  return (data, senderId) => {
+    queue4 = queue4.then(() => handler(data, senderId)).catch((err) => logError(`Ammunition request failed (${data?.type})`, data, err));
+    return queue4;
+  };
+}
+registerHandler("ammoShot", serial3(async (data, senderId) => {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const actor = fromUuidSync(data.actorUuid);
+  if (actor?.documentName !== "Actor" || !actor.testUserPermission(user, "OWNER")) return;
+  const combat = game.combats.get(data.combatId);
+  if (!combat?.started) return;
+  if (!combat.combatants.some((c) => c.actorId === actor.id)) return;
+  const count = Math.min(MAX_PER_REPORT, Math.floor(Number(data.count)));
+  if (!(count >= 1) || typeof data.itemId !== "string") return;
+  let snapshot;
+  const live = actor.items.get(data.itemId);
+  if (live) {
+    if (!countsForRecovery(live)) return;
+    snapshot = live.toObject();
+  } else {
+    snapshot = data.snapshot;
+    if (!snapshot || typeof snapshot !== "object" || !countsForRecovery(snapshot)) return;
+    if (JSON.stringify(snapshot).length > MAX_SNAPSHOT) return;
+    snapshot = foundry.utils.deepClone(snapshot);
+  }
+  snapshot.system.quantity = 1;
+  const list = foundry.utils.deepClone(combat.getFlag(MODULE_ID, "ammoShots") ?? []);
+  const existing = list.find((e) => e.actorUuid === data.actorUuid && e.itemId === data.itemId);
+  if (existing) existing.count += count;
+  else list.push({
+    actorUuid: data.actorUuid,
+    actorName: actor.name,
+    img: actor.img,
+    playerOwned: !!actor.hasPlayerOwner,
+    itemId: data.itemId,
+    name: String(snapshot.name ?? ""),
+    count,
+    containerId: snapshot.system.container ?? null,
+    snapshot
+  });
+  await combat.setFlag(MODULE_ID, "ammoShots", list);
+}));
+var gmIds = () => game.users.filter((u) => u.isGM).map((u) => u.id);
+Hooks.on("deleteCombat", async (combat) => {
+  try {
+    if (game.user !== game.users.activeGM || !recoveryActive()) return;
+    const shots = combat.getFlag(MODULE_ID, "ammoShots") ?? [];
+    if (!Array.isArray(shots) || !shots.length) return;
+    const rows = /* @__PURE__ */ new Map();
+    for (const e of shots) {
+      if (!(e?.count > 0)) continue;
+      let row = rows.get(e.actorUuid);
+      if (!row) {
+        row = { actorUuid: e.actorUuid, actorName: e.actorName, img: e.img, playerOwned: !!e.playerOwned, stacks: [], result: null };
+        rows.set(e.actorUuid, row);
+      }
+      row.stacks.push({ itemId: e.itemId, name: e.name, count: e.count, containerId: e.containerId ?? null, snapshot: e.snapshot });
+    }
+    if (!rows.size) return;
+    const data = { method: recoveryMethod(), rows: [...rows.values()] };
+    await ChatMessage.create({
+      whisper: gmIds(),
+      speaker: { alias: loc("AmmoRecovery.Title") },
+      content: renderContent(data),
+      flags: { [MODULE_ID]: { ammoRecovery: data } }
+    });
+  } catch (err) {
+    logError("Offering to recover ammunition failed", err);
+  }
+});
+var methodLabel = (method) => loc(method === "roll" ? "AmmoRecovery.MethodRoll" : "AmmoRecovery.MethodHalf");
+var amount = (count, name) => loc("AmmoRecovery.Stack", { count, name });
+function resultText(result) {
+  if (result === "pending") return `<i class="fa-solid fa-spinner fa-spin"></i>`;
+  if (!result) return "";
+  if ("skipped" in result) return esc(loc("AmmoRecovery.Skipped"));
+  if (result.failed) return esc(loc("AmmoRecovery.Failed"));
+  if (!result.stacks.length) return esc(loc("AmmoRecovery.Nothing"));
+  return result.stacks.map((s) => {
+    if (s.failed) return `${esc(s.name)}: ${esc(loc("AmmoRecovery.Failed"))}`;
+    let text4 = s.rolled ? `${s.name} (${loc("AmmoRecovery.Rolled", { shots: s.count, count: s.back })})` : loc("AmmoRecovery.Back", { count: amount(s.back, s.name) });
+    if (s.loose > 0) text4 += ` ${loc("AmmoRecovery.Loose", { count: s.loose })}`;
+    return esc(text4);
+  }).join(", ");
+}
+function rowHTML(row, index) {
+  const open2 = row.result === null;
+  const shots = row.stacks.map((s) => amount(s.count, s.name)).join(", ");
+  const skip = esc(loc("AmmoRecovery.Skip"));
+  const buttons = open2 ? `
+      <button type="button" data-action="collect"><i class="fa-solid fa-hand"></i> ${esc(loc("AmmoRecovery.Collect"))}</button>
+      <button type="button" class="skip" data-action="skip" data-tooltip="${skip}" aria-label="${skip}">\u2715</button>` : "";
+  return `
+    <li data-row="${index}"${open2 ? "" : ` class="done"`}>
+      <img src="${esc(row.img)}" alt="">
+      <div class="info">
+        <span class="name">${esc(row.actorName)}</span>
+        <span class="shots">${esc(shots)}</span>
+        ${open2 ? "" : `<span class="result">${resultText(row.result)}</span>`}
+      </div>${buttons}
+    </li>`;
+}
+function renderContent(data, npcsOpened2 = false) {
+  const indexed = data.rows.map((row, index) => ({ row, index }));
+  const characters = indexed.filter((r) => r.row.playerOwned);
+  const npcs = indexed.filter((r) => !r.row.playerOwned);
+  const list = (rows) => `<ul class="rows">${rows.map((r) => rowHTML(r.row, r.index)).join("")}</ul>`;
+  const npcsOpen = npcsOpened2 || npcs.some((r) => r.row.result !== null) && npcs.some((r) => r.row.result === null);
+  const anyOpen = data.rows.some((r) => r.result === null);
+  return `
+    <div class="pack-ledger-ammo">
+      <h3><i class="fa-solid fa-bow-arrow"></i> ${esc(loc("AmmoRecovery.Title"))} \xB7 ${esc(methodLabel(data.method))}</h3>
+      ${characters.length ? `<h4>${esc(loc("AmmoRecovery.Characters"))}</h4>${list(characters)}` : ""}
+      ${npcs.length ? `<details${npcsOpen ? " open" : ""}><summary>${esc(loc("AmmoRecovery.NPCs"))} (${npcs.length})</summary>${list(npcs)}</details>` : ""}
+      ${anyOpen ? `<button type="button" class="collect-all" data-action="collect-all"><i class="fa-solid fa-hands-holding"></i> ${esc(loc("AmmoRecovery.CollectAll"))}</button>` : ""}
+    </div>`;
+}
+async function addTo(actor, snapshot, containerId, quantity) {
+  const existing = actor.items.find((i) => (containerId ? i.system?.container === containerId : !i.system?.container) && sameStack(i, snapshot));
+  if (existing) {
+    await existing.update({ "system.quantity": (Number(existing.system.quantity) || 0) + quantity }, BYPASS());
+    return;
+  }
+  const data = foundry.utils.deepClone(snapshot);
+  delete data._id;
+  data.system.quantity = quantity;
+  data.system.container = containerId;
+  await actor.createEmbeddedDocuments("Item", [data], BYPASS());
+}
+async function putBack(actor, stack, back) {
+  const snapshot = foundry.utils.deepClone(stack.snapshot);
+  snapshot.system.quantity = 1;
+  let rest = back;
+  const item = actor.items.get(stack.itemId);
+  if (item) {
+    const unit = item.toObject();
+    unit.system.quantity = 1;
+    const fit = roomFor(actor.items.get(item.system.container), unit, back);
+    if (fit > 0) {
+      await item.update({ "system.quantity": (Number(item.system.quantity) || 0) + fit }, BYPASS());
+      rest -= fit;
+    }
+  } else {
+    const container = stack.containerId ? actor.items.get(stack.containerId) : null;
+    if (container?.type === "container") {
+      const fit = roomFor(container, snapshot, back);
+      if (fit > 0) {
+        await addTo(actor, snapshot, container.id, fit);
+        rest -= fit;
+      }
+    }
+  }
+  if (rest > 0) await addTo(actor, snapshot, null, rest);
+  return rest;
+}
+async function recoverStack(actor, stack, method) {
+  const count = Math.max(0, Math.floor(Number(stack.count) || 0));
+  const result = { name: stack.name, count, back: 0, loose: 0, rolled: method === "roll" };
+  if (count < 1) return result;
+  if (method === "roll") {
+    const roll = await new Roll(rollFormula(count)).evaluate();
+    result.back = Math.min(count, Math.max(0, Math.floor(Number(roll.total) || 0)));
+    Promise.resolve(game.dice3d?.showForRoll(roll, game.user, true, gmIds())).catch((err) => logError("Dice animation failed", err));
+  } else result.back = halfBack(count);
+  if (result.back > 0) result.loose = await putBack(actor, stack, result.back);
+  return result;
+}
+function cardData(message) {
+  const data = message.getFlag(MODULE_ID, "ammoRecovery");
+  return Array.isArray(data?.rows) ? foundry.utils.deepClone(data) : null;
+}
+var npcsOpened = /* @__PURE__ */ new Set();
+function saveCard(message, data) {
+  return message.update({ content: renderContent(data, npcsOpened.has(message.id)), [`flags.${MODULE_ID}.ammoRecovery`]: data });
+}
+function dropSnapshots(row) {
+  for (const stack of row.stacks) delete stack.snapshot;
+}
+async function settleRow(message, index, action) {
+  const data = cardData(message);
+  const row = data?.rows[index];
+  if (!data || !row || row.result !== null) return;
+  if (action === "skip") {
+    row.result = { skipped: true };
+    dropSnapshots(row);
+    await saveCard(message, data);
+    return;
+  }
+  row.result = "pending";
+  await saveCard(message, data);
+  const stacks = [];
+  let actor = null;
+  try {
+    actor = await fromUuid(row.actorUuid);
+    if (actor?.documentName !== "Actor") actor = null;
+    if (actor) for (const stack of row.stacks) {
+      try {
+        stacks.push(await recoverStack(actor, stack, data.method));
+      } catch (err) {
+        logError(`Recovering "${stack.name}" for ${row.actorName} failed`, err);
+        stacks.push({ name: stack.name, count: stack.count, back: 0, loose: 0, rolled: data.method === "roll", failed: true });
+      }
+    }
+  } finally {
+    const latest = cardData(message) ?? data;
+    const target = latest.rows[index];
+    if (target) {
+      target.result = actor ? { stacks } : { stacks, failed: true };
+      dropSnapshots(target);
+    }
+    await saveCard(message, latest);
+  }
+  const items = stacks.filter((s) => s.back > 0).map((s) => itemLabel(s.name, s.back));
+  if (actor && items.length) logChange("ammoRecovery", { actor: actor.name, data: { method: methodLabel(data.method) }, items });
+}
+async function collectAll(message) {
+  const data = cardData(message);
+  if (!data) return;
+  for (const [index, row] of data.rows.entries()) {
+    if (row.result === null) await settleRow(message, index, "collect");
+  }
+}
+var clicks = Promise.resolve();
+function onRenderChatMessage2(message, html) {
+  if (!game.user.isGM) return;
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  const element = root?.querySelector(".pack-ledger-ammo");
+  if (!element) return;
+  element.querySelector("details")?.addEventListener("toggle", (event) => {
+    if (event.target.open) npcsOpened.add(message.id);
+    else npcsOpened.delete(message.id);
+  });
+  element.addEventListener("click", (event) => {
+    const button2 = event.target.closest("button[data-action]");
+    if (!button2) return;
+    event.preventDefault();
+    const action = button2.dataset.action;
+    const index = Number(button2.closest("[data-row]")?.dataset.row);
+    clicks = clicks.then(() => {
+      const live = game.messages.get(message.id);
+      if (!live) return;
+      if (action === "collect-all") return collectAll(live);
+      if ((action === "collect" || action === "skip") && Number.isInteger(index)) return settleRow(live, index, action);
+    }).catch((err) => logError("Recovering ammunition failed", err));
+  });
+}
+Hooks.once("init", () => {
+  Hooks.on("renderChatMessageHTML", onRenderChatMessage2);
 });
 
 // src/feature/piles/secrets.ts
@@ -8046,19 +8977,19 @@ function hasKey(token, actor) {
   const lock = pileLock(token);
   return !!actor && !!lock?.key && actor.items.some((i) => isKeyFor(lock, i.name));
 }
-var queue4 = Promise.resolve();
-function serial3(handler) {
+var queue5 = Promise.resolve();
+function serial4(handler) {
   return (data, senderId) => {
-    queue4 = queue4.then(() => handler(data, senderId)).catch((err) => logError(`Pile request failed`, err));
-    return queue4;
+    queue5 = queue5.then(() => handler(data, senderId)).catch((err) => logError(`Pile request failed`, err));
+    return queue5;
   };
 }
 function registerPileSecretHooks() {
   Hooks.on("dnd5e.rollSkill", onRollSkill);
   Hooks.on("updateToken", onTokenMoved);
 }
-registerHandler("pileSearch", serial3(executeSearch));
-registerHandler("pileUnlock", serial3(executeUnlock));
+registerHandler("pileSearch", serial4(executeSearch));
+registerHandler("pileUnlock", serial4(executeUnlock));
 
 // src/feature/piles/gm-tools.ts
 async function setPileCoins(token, coins) {
@@ -8097,7 +9028,7 @@ async function promptNewCoins() {
   return coins;
 }
 function pickCanvasPoint(message) {
-  return new Promise((resolve) => {
+  return new Promise((resolve2) => {
     const view = canvas.app.view;
     let notice = null;
     try {
@@ -8114,7 +9045,7 @@ function pickCanvasPoint(message) {
         if (notice) ui.notifications.remove(notice);
       } catch (err) {
       }
-      resolve(point);
+      resolve2(point);
     };
     const onDown = (event) => {
       if (event.target !== view) return;
@@ -8257,20 +9188,20 @@ function getPileAppClass() {
       const info = document.createElement("p");
       info.className = "taker";
       const icon = document.createElement("i");
-      const text3 = document.createElement("span");
+      const text4 = document.createElement("span");
       if (!taker) {
         info.classList.add("none");
         icon.className = "fa-solid fa-circle-info";
-        text3.textContent = loc("Pile.NoTaker");
+        text4.textContent = loc("Pile.NoTaker");
       } else if (!canReach(this.token, taker)) {
         info.classList.add("out-of-range");
         icon.className = "fa-solid fa-person-walking";
-        text3.textContent = loc("Pile.TakerOutOfRange", { actor: taker.name });
+        text4.textContent = loc("Pile.TakerOutOfRange", { actor: taker.name });
       } else {
         icon.className = "fa-solid fa-hand";
-        text3.textContent = loc("Pile.Taker", { actor: taker.name });
+        text4.textContent = loc("Pile.Taker", { actor: taker.name });
       }
-      info.append(icon, text3);
+      info.append(icon, text4);
       return info;
     }
     /** What players see of a locked pile: the lock and the ways to open it. */
@@ -8627,6 +9558,4052 @@ function markPickedUp(messageId, tokenId) {
   return messageEdits;
 }
 
+// src/core/policy/trade-rules.ts
+function isTradeable(item) {
+  return !!item && PHYSICAL_TYPES.has(item.type) && !isBodyPart(item);
+}
+var CURRENCIES = ["pp", "gp", "ep", "sp", "cp"];
+var TRADE_ACTOR_TYPES = /* @__PURE__ */ new Set(["character", "npc"]);
+var ASK_TIMEOUT = 6e4;
+var MAX_OFFER_ITEMS = 100;
+function canTrade(actor) {
+  return actor?.documentName === "Actor" && TRADE_ACTOR_TYPES.has(actor.type) && !isPile(actor);
+}
+var emptyCurrency = () => Object.fromEntries(CURRENCIES.map((d) => [d, 0]));
+var actorCurrency = (actor, denomination) => Math.max(0, Math.floor(Number(actor.system?.currency?.[denomination]) || 0));
+function ownTradingActor() {
+  const controlled = canvas.tokens?.controlled.map((t) => t.actor).find((a) => canTrade(a) && a.isOwner);
+  const actor = controlled ?? game.user.character;
+  return canTrade(actor) && actor.isOwner ? actor : null;
+}
+function tradeRange() {
+  return Math.max(0, Number(getSetting("tradeRange")) || 0);
+}
+function inTradeRange(a, b) {
+  const range = tradeRange();
+  if (!range) return true;
+  for (const scene of game.scenes) {
+    const g = scene.grid.size;
+    for (const t of scene.tokens) {
+      if (t.actor !== a) continue;
+      const center = { x: t.x + t.width * g / 2, y: t.y + t.height * g / 2 };
+      if (withinRange(scene, b, center, Math.max(t.width, t.height), range)) return true;
+    }
+  }
+  return false;
+}
+
+// src/feature/trade/transfer.ts
+var queue6 = Promise.resolve();
+function enqueueTransfer(fn) {
+  const run = queue6.then(fn);
+  queue6 = run.catch(() => {
+  });
+  return run;
+}
+var TransferProblem = class extends Error {
+};
+function resolveOffer(actor, side, changedMessage = loc("Trade.Changed")) {
+  const entries = side.items.map(({ id, quantity }) => {
+    const item = actor.items.get(id);
+    const stack = stackQuantity(item);
+    if (!item || quantity > stack) throw new TransferProblem(changedMessage);
+    const nested = descendants(actor, item);
+    return { item, quantity, stack, nested, data: transferData(item, nested, quantity) };
+  });
+  for (const d of CURRENCIES) {
+    if (side.currency[d] > actorCurrency(actor, d)) throw new TransferProblem(changedMessage);
+  }
+  return entries;
+}
+async function removeOffer(actor, entries, undo, { keepEmpty = false, changed = loc("Trade.Changed") } = {}) {
+  for (const { item, quantity, stack, nested } of entries) {
+    if (quantity < stack || keepEmpty && item.type !== "container") {
+      const left2 = Math.max(0, stack - quantity);
+      await item.update({ "system.quantity": left2 }, BYPASS());
+      if (pieces(item) === stack) throw new TransferProblem(changed);
+      undo.push(() => item.update({ "system.quantity": stack }, BYPASS()));
+      if (pieces(item) !== left2) throw new TransferProblem(changed);
+      continue;
+    }
+    const snapshot = [item, ...nested].map((i) => i.toObject());
+    await actor.deleteEmbeddedDocuments("Item", snapshot.map((i) => i._id), BYPASS());
+    const removed = snapshot.filter((i) => !actor.items.has(i._id));
+    if (removed.length) undo.push(() => Item.implementation.createDocuments(removed, { parent: actor, keepId: true, ...BYPASS() }));
+    if (removed.length !== snapshot.length) throw new TransferProblem(changed);
+  }
+}
+async function giveOffer(actor, entries, user, undo, overflow) {
+  const rules = user.isGM ? { notifyUser: user.id } : { strict: true, notifyUser: user.id };
+  for (const entry of entries) {
+    const [top, ...contents] = remapIds(foundry.utils.deepClone(entry.data));
+    const merged = !contents.length && await mergeIntoStack(actor, top, { [MODULE_ID]: rules });
+    if (merged) {
+      const { item, previous } = merged;
+      undo.push(() => actor.items.has(item.id) && item.update({ "system.quantity": previous }, BYPASS()));
+      continue;
+    }
+    const [created] = await Item.implementation.createDocuments([top], { parent: actor, keepId: true, [MODULE_ID]: rules });
+    if (!created) {
+      if (!overflow) return false;
+      overflow.push([top, ...contents]);
+      continue;
+    }
+    undo.push(() => actor.items.has(created.id) && actor.deleteEmbeddedDocuments("Item", [created.id], BYPASS()));
+    if (!contents.length) continue;
+    const added = await Item.implementation.createDocuments(contents, { parent: actor, keepId: true, ...BYPASS() });
+    const ids = added.map((i) => i.id);
+    undo.push(() => actor.deleteEmbeddedDocuments("Item", ids.filter((id) => actor.items.has(id)), BYPASS()));
+  }
+  return true;
+}
+var writeCoins = (actor, coins, source) => actor.update(
+  Object.fromEntries(DENOMINATIONS.map((d) => [`system.currency.${d}`, coins[d]])),
+  { [MODULE_ID]: { coins: source } }
+);
+async function setCoins(actor, before, after, undo, source) {
+  if (sameCoins(before, after)) return;
+  await writeCoins(actor, after, source);
+  const applied = difference(before, coinsOf(actor));
+  if (!isZero(applied)) undo.push(() => {
+    const current2 = coinsOf(actor);
+    let target = add(current2, applied, -1);
+    if (hasNegative(target)) {
+      const settled = settle(current2, toCopper(target));
+      if (settled) target = settled;
+      else {
+        logError(`The coins of ${actor.name} could not be taken back in full`, { current: current2, applied });
+        target = Object.fromEntries(DENOMINATIONS.map((d) => [d, Math.max(0, target[d])]));
+      }
+    }
+    return writeCoins(actor, target, source);
+  });
+  if (!sameCoins(coinsOf(actor), after)) throw new Error(`The coins of ${actor.name} could not be set`);
+}
+async function rollback(undo) {
+  for (const step of undo.reverse()) {
+    try {
+      await step();
+    } catch (err) {
+      logError(`Could not undo part of a failed trade`, err);
+    }
+  }
+}
+
+// src/feature/trade/chat-card.ts
+function storedName(actor) {
+  const viewer = game.users.find((u) => !u.isGM && !actor.testUserPermission(u, "OWNER"));
+  return viewer ? visibleName(actor, viewer) : actor.name;
+}
+var nameSpan = (actor) => `<span class="actor-name" data-actor-uuid="${esc(actor.uuid)}">${esc(storedName(actor))}</span>`;
+function cardEntries(entries, currency) {
+  return {
+    items: entries.map((e) => ({
+      name: e.item.name,
+      img: e.item.img,
+      quantity: e.item.type === "container" ? 1 : e.quantity,
+      contents: e.nested.length
+    })),
+    coins: currencyText(currency)
+  };
+}
+function cardSection(giver, receiver, { items, coins }) {
+  const rows = items.map((i) => `
+      <li>
+        <img src="${esc(i.img)}" alt="">
+        <span class="name">${esc(i.name)}</span>
+        ${i.quantity > 1 ? `<span class="quantity">\xD7${esc(i.quantity)}</span>` : ""}
+        ${i.contents ? `<span class="contents">${esc(loc("Trade.Contents", { count: i.contents }))}</span>` : ""}
+      </li>`);
+  if (coins.length) rows.push(`
+      <li class="coins"><i class="fa-solid fa-coins"></i><span class="name">${esc(coins.join(", "))}</span></li>`);
+  if (!rows.length) rows.push(`<li class="nothing">${esc(loc("Trade.ChatNothing"))}</li>`);
+  return `
+    <section>
+      <h4>${loc("Trade.ChatGives", { actor: nameSpan(giver), partner: nameSpan(receiver) })}</h4>
+      <ul>${rows.join("")}</ul>
+    </section>`;
+}
+function postTradeCard(a, b, givenByA, givenByB) {
+  const content = `
+    <div class="pack-ledger-trade-card">
+      <h3><i class="fa-solid fa-handshake"></i> ${esc(loc("Trade.ChatTitle"))}</h3>
+      ${cardSection(a, b, givenByA)}
+      ${cardSection(b, a, givenByB)}
+    </div>`;
+  return ChatMessage.create({
+    speaker: { alias: loc("Trade.ChatSpeaker") },
+    content,
+    flags: { [MODULE_ID]: { tradeCard: { actors: [a.uuid, b.uuid] } } }
+  });
+}
+function onRenderTradeCard(message, html) {
+  const root = html instanceof HTMLElement ? html : html?.[0];
+  for (const span of root?.querySelectorAll(".pack-ledger-trade-card .actor-name[data-actor-uuid]") ?? []) {
+    let actor = null;
+    try {
+      actor = fromUuidSync(span.dataset.actorUuid);
+    } catch {
+    }
+    if (actor?.documentName === "Actor") span.textContent = visibleName(actor);
+  }
+}
+
+// src/feature/trade/sessions.ts
+var sessions = /* @__PURE__ */ new Map();
+function newSide(actor, user) {
+  return { actorUuid: actor.uuid, userId: user.id, items: [], currency: emptyCurrency(), accepted: false };
+}
+var sidesOf = (session) => [["a", session.a], ["b", session.b]];
+function rangeExempt(session) {
+  return !!(game.users.get(session.a.userId)?.isGM && game.users.get(session.b.userId)?.isGM);
+}
+function isTrading(actor) {
+  for (const session of sessions.values()) {
+    if (session.a.actorUuid === actor.uuid || session.b.actorUuid === actor.uuid) return true;
+  }
+  return false;
+}
+function responderFor(actor, requester) {
+  const players = game.users.filter((u) => u.active && !u.isGM && actor.testUserPermission(u, "OWNER"));
+  const player = players.find((u) => u.character === actor) ?? players.find((u) => u === requester) ?? players[0];
+  if (player) return player;
+  if (requester.isGM) return requester;
+  return game.users.activeGM ?? null;
+}
+function requestSide(session, data, user) {
+  const side = data.side === "b" ? "b" : "a";
+  return session?.status === "open" && session[side].userId === user.id ? side : null;
+}
+function sideView(side, user) {
+  const actor = fromUuidSync(side.actorUuid);
+  const items = side.items.map(({ id, quantity }) => {
+    const item = actor?.items.get(id);
+    if (!item) return null;
+    return { id, uuid: item.uuid, name: item.name, img: item.img, quantity, contents: descendants(actor, item).length };
+  }).filter((i) => i);
+  return {
+    actorUuid: side.actorUuid,
+    name: actor ? visibleName(actor, user) : "?",
+    img: actor?.img ?? "",
+    items,
+    currency: { ...side.currency },
+    accepted: side.accepted
+  };
+}
+function broadcast(session) {
+  for (const [side, data] of sidesOf(session)) {
+    const user = game.users.get(data.userId);
+    const state2 = { id: session.id, version: session.version ?? 0, a: sideView(session.a, user), b: sideView(session.b, user) };
+    sendToUser(data.userId, { type: "tradeState", tradeId: session.id, side, state: state2 });
+  }
+}
+function endSession(session, level, message) {
+  sessions.delete(session.id);
+  clearTimeout(session.timer);
+  const sent = /* @__PURE__ */ new Set();
+  for (const [, data] of sidesOf(session)) {
+    sendToUser(data.userId, { type: "tradeClosed", tradeId: session.id });
+    const user = game.users.get(data.userId);
+    if (message && user && !sent.has(user.id)) notifyUser(user.id, level, message(user));
+    sent.add(data.userId);
+  }
+}
+function actorName(uuid, user) {
+  const actor = fromUuidSync(uuid);
+  return actor ? visibleName(actor, user) : "?";
+}
+async function onInvite(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user || !getSetting("tradeEnabled")) return;
+  const actor = await fromUuid(data.actorUuid);
+  const partner = await fromUuid(data.partnerUuid);
+  if (!canTrade(actor) || !actor.testUserPermission(user, "OWNER")) return;
+  if (!canTrade(partner) || partner === actor) return notifyUser(user.id, "warn", loc("Trade.InvalidPartner"));
+  for (const side of [actor, partner]) {
+    if (isMerchant(side)) return notifyUser(user.id, "warn", loc("Trade.MerchantNoTrade", { merchant: visibleName(side, user) }));
+  }
+  if (isTrading(actor)) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: actor.name }));
+  if (isTrading(partner)) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: visibleName(partner, user) }));
+  if (isShopping(actor)) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: actor.name }));
+  if (isShopping(partner)) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: visibleName(partner, user) }));
+  const responder = responderFor(partner, user);
+  if (!responder) return notifyUser(user.id, "warn", loc("Trade.NoResponder", { partner: visibleName(partner, user) }));
+  const session = { id: foundry.utils.randomID(), status: "pending", a: newSide(actor, user), b: newSide(partner, responder) };
+  if (!rangeExempt(session) && !inTradeRange(actor, partner)) {
+    return notifyUser(user.id, "warn", loc("Trade.OutOfRange", { actor: actor.name, partner: visibleName(partner, user) }));
+  }
+  sessions.set(session.id, session);
+  if (responder === user) {
+    session.status = "open";
+    return broadcast(session);
+  }
+  session.timer = setTimeout(() => {
+    if (session.status !== "pending") return;
+    sendToUser(responder.id, { type: "tradeClosed", tradeId: session.id });
+    sessions.delete(session.id);
+    notifyUser(user.id, "notice", loc("Trade.Expired", { partner: visibleName(partner, user) }));
+  }, ASK_TIMEOUT);
+  sendToUser(responder.id, {
+    type: "tradeAsk",
+    tradeId: session.id,
+    user: user.name,
+    from: visibleName(actor, responder),
+    to: visibleName(partner, responder)
+  });
+  notifyUser(user.id, "info", loc("Trade.Asked", { partner: visibleName(partner, user) }));
+}
+async function onRespond(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions.get(data.tradeId);
+  if (!user) return;
+  if (!session || session.status !== "pending") return notifyUser(user.id, "warn", loc("Trade.Unavailable"));
+  if (session.b.userId !== user.id) return;
+  clearTimeout(session.timer);
+  if (!data.accept) {
+    sessions.delete(session.id);
+    return notifyUser(session.a.userId, "notice", loc("Trade.Declined", {
+      partner: actorName(session.b.actorUuid, game.users.get(session.a.userId))
+    }));
+  }
+  session.status = "open";
+  broadcast(session);
+}
+function sanitizeOffer(actor, items, currency) {
+  const seen = /* @__PURE__ */ new Set();
+  const offer = [];
+  for (const entry of Array.isArray(items) ? items.slice(0, MAX_OFFER_ITEMS) : []) {
+    const item = actor.items.get(entry?.id);
+    if (!isTradeable(item) || seen.has(item.id)) continue;
+    seen.add(item.id);
+    const stack = stackQuantity(item);
+    offer.push({ id: item.id, quantity: Math.clamp(Math.floor(Number(entry.quantity) || stack), 1, stack) });
+  }
+  const offered = new Set(offer.map((e) => e.id));
+  const insideOffered = (item) => {
+    let parent = actor.items.get(item.system?.container);
+    for (let depth = 0; parent && depth < 10; depth++) {
+      if (offered.has(parent.id)) return true;
+      parent = actor.items.get(parent.system?.container);
+    }
+    return false;
+  };
+  const coins = Object.fromEntries(CURRENCIES.map((d) => [d, Math.clamp(Math.floor(Number(currency?.[d]) || 0), 0, actorCurrency(actor, d))]));
+  return { items: offer.filter((e) => !insideOffered(actor.items.get(e.id))), currency: coins };
+}
+async function onOffer(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions.get(data.tradeId);
+  if (!user) return;
+  if (!session) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
+  const side = requestSide(session, data, user);
+  if (!side || session.executing) return;
+  const actor = await fromUuid(session[side].actorUuid);
+  if (!actor || session.executing || sessions.get(session.id) !== session) return;
+  Object.assign(session[side], sanitizeOffer(actor, data.items, data.currency));
+  session.version = (session.version ?? 0) + 1;
+  session.a.accepted = session.b.accepted = false;
+  broadcast(session);
+}
+async function onAccept(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions.get(data.tradeId);
+  if (!user) return;
+  if (!session) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
+  const side = requestSide(session, data, user);
+  if (!side || session.executing) return;
+  if (data.accepted && data.version !== (session.version ?? 0)) return broadcast(session);
+  session[side].accepted = !!data.accepted;
+  if (session.a.accepted && session.b.accepted) return executeTrade(session);
+  broadcast(session);
+}
+function onCancel(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions.get(data.tradeId);
+  if (!user || !session || session.executing) return;
+  const side = data.side === "b" ? "b" : "a";
+  if (session[side].userId !== user.id) return;
+  endSession(session, "notice", (u) => loc("Trade.Cancelled", { actor: actorName(session[side].actorUuid, u) }));
+}
+var currencyText = (currency) => CURRENCIES.filter((d) => currency[d] > 0).map((d) => `${currency[d]} ${game.i18n.localize(CONFIG.DND5E.currencies?.[d]?.abbreviation ?? d)}`);
+function tradeLines(giver, receiver, entries) {
+  return entries.map((e) => itemLabel(logName(e.item), e.item.type === "container" ? 1 : e.quantity)).map((text4) => `${giver.name} \u2192 ${receiver.name}: ${text4}`);
+}
+function executeTrade(session) {
+  session.executing = true;
+  return enqueueTransfer(() => performTrade(session)).catch((err) => logError(`Trade failed`, err)).finally(() => {
+    session.executing = false;
+  });
+}
+async function performTrade(session) {
+  const offerA = foundry.utils.deepClone({ items: session.a.items, currency: session.a.currency });
+  const offerB = foundry.utils.deepClone({ items: session.b.items, currency: session.b.currency });
+  const a = await fromUuid(session.a.actorUuid);
+  const b = await fromUuid(session.b.actorUuid);
+  const ua = game.users.get(session.a.userId);
+  const ub = game.users.get(session.b.userId);
+  const fail = (message) => {
+    session.a.accepted = session.b.accepted = false;
+    for (const user of /* @__PURE__ */ new Set([ua, ub])) if (user) notifyUser(user.id, "warn", message(user));
+    broadcast(session);
+  };
+  if (!a || !b || !ua || !ub || !a.testUserPermission(ua, "OWNER") || !b.testUserPermission(ub, "OWNER")) {
+    return endSession(session, "warn", () => loc("Trade.Unavailable"));
+  }
+  if (!rangeExempt(session) && !inTradeRange(a, b)) {
+    return fail((u) => loc("Trade.OutOfRange", { actor: visibleName(a, u), partner: visibleName(b, u) }));
+  }
+  let fromA;
+  let fromB;
+  try {
+    fromA = resolveOffer(a, offerA);
+    fromB = resolveOffer(b, offerB);
+  } catch (err) {
+    if (err instanceof TransferProblem) return fail(() => err.message);
+    throw err;
+  }
+  if (!fromA.length && !fromB.length && !currencyText(offerA.currency).length && !currencyText(offerB.currency).length) {
+    return fail(() => loc("Trade.Nothing"));
+  }
+  const givenByA = cardEntries(fromA, offerA.currency);
+  const givenByB = cardEntries(fromB, offerB.currency);
+  const undo = [];
+  let coinsA = null;
+  let coinsB = null;
+  try {
+    await removeOffer(a, fromA, undo);
+    await removeOffer(b, fromB, undo);
+    if (!await giveOffer(b, fromA, ub, undo)) {
+      await rollback(undo);
+      return fail((u) => loc("Trade.Blocked", { actor: visibleName(b, u) }));
+    }
+    if (!await giveOffer(a, fromB, ua, undo)) {
+      await rollback(undo);
+      return fail((u) => loc("Trade.Blocked", { actor: visibleName(a, u) }));
+    }
+    const coins = (actor, give, get) => Object.fromEntries(CURRENCIES.map((d) => [d, actorCurrency(actor, d) - give[d] + get[d]]));
+    coinsA = coinsOf(a);
+    coinsB = coinsOf(b);
+    await setCoins(a, coinsA, coins(a, offerA.currency, offerB.currency), undo, "trade");
+    await setCoins(b, coinsB, coins(b, offerB.currency, offerA.currency), undo, "trade");
+  } catch (err) {
+    await rollback(undo);
+    if (err instanceof TransferProblem) return fail(() => err.message);
+    fail(() => loc("Trade.Failed"));
+    throw err;
+  }
+  if (coinsA) logModuleCoins("trade", a, ua, coinsA, b.name);
+  if (coinsB) logModuleCoins("trade", b, ub, coinsB, a.name);
+  if (fromA.length || fromB.length) logChange("trade", {
+    actor: a.name,
+    data: { partner: b.name },
+    items: [...tradeLines(a, b, fromA), ...tradeLines(b, a, fromB)]
+  }, ua);
+  endSession(session, "info", (u) => loc("Trade.Done", { actor: visibleName(a, u), partner: visibleName(b, u) }));
+  try {
+    await postTradeCard(a, b, givenByA, givenByB);
+  } catch (err) {
+    logError(`Could not post the trade to the chat`, err);
+  }
+}
+function onUserConnected(user, connected) {
+  if (connected || game.user !== game.users.activeGM) return;
+  for (const session of [...sessions.values()]) {
+    if (session.executing) continue;
+    const side = sidesOf(session).find(([, s]) => s.userId === user.id);
+    if (side) endSession(session, "notice", (u) => loc("Trade.Cancelled", { actor: actorName(side[1].actorUuid, u) }));
+  }
+}
+
+// src/feature/shop/chat-card.ts
+function postShopCard(merchant, customer, bought, sold, totals) {
+  const { name, img } = merchantConfig(merchant);
+  const icon = img ? `<img class="shop-img" src="${esc(img)}" alt="">` : `<i class="fa-solid fa-store"></i>`;
+  const content = `
+    <div class="pack-ledger-trade-card pack-ledger-shop-card">
+      <h3>${icon} ${esc(name || loc("Shop.ChatTitle"))}</h3>
+      ${cardSection(merchant, customer, { items: bought, coins: totals.net < 0 ? [goldText(-totals.net)] : [] })}
+      ${cardSection(customer, merchant, { items: sold, coins: totals.net > 0 ? [goldText(totals.net)] : [] })}
+      ${totals.discount ? `<p class="discount">${esc(loc("Shop.ChatDiscount", { amount: goldText(totals.discount) }))}</p>` : ""}
+    </div>`;
+  return ChatMessage.create({
+    speaker: { alias: name || loc("Shop.ChatSpeaker") },
+    content,
+    flags: { [MODULE_ID]: { shopCard: { actors: [merchant.uuid, customer.uuid] } } }
+  });
+}
+
+// src/feature/shop/creatures.ts
+var CREATURE_PRICES = {
+  "Camel": 50,
+  "Donkey": 8,
+  "Mule": 8,
+  "Draft Horse": 50,
+  "Riding Horse": 75,
+  "Warhorse": 400,
+  "Pony": 30,
+  "Mastiff": 25,
+  "Elephant": 200
+};
+var creatureSource = (item) => {
+  const uuid = item?.flags?.[MODULE_ID]?.creature?.uuid;
+  return typeof uuid === "string" && uuid ? uuid : null;
+};
+var isCreatureOffer = (item) => creatureSource(item) !== null;
+function creatureOfferData(actor, uuid) {
+  const price = Object.hasOwn(CREATURE_PRICES, actor?.name) ? CREATURE_PRICES[actor.name] : void 0;
+  const system = { quantity: 1, weight: { value: 0, units: "lb" } };
+  if (price !== void 0) system.price = { value: price, denomination: "gp" };
+  return { name: actor.name, img: actor.img, type: "loot", system, flags: { [MODULE_ID]: { creature: { uuid } } } };
+}
+async function addCreatureStock(merchant, actor, uuid) {
+  const existing = merchant.items.find((i) => creatureSource(i) === uuid);
+  if (existing) {
+    const quantity = Math.max(0, Math.floor(Number(existing.system?.quantity)) || 0) + 1;
+    await existing.update({ "system.quantity": quantity }, BYPASS());
+    return existing;
+  }
+  const created = await merchant.createEmbeddedDocuments("Item", [creatureOfferData(actor, uuid)], BYPASS());
+  return created[0] ?? null;
+}
+var cells = (n) => Math.max(1, Math.ceil(Number(n) || 1));
+var overlaps = (a, b) => a.x < b.x + b.w - 0.5 && b.x < a.x + a.w - 0.5 && a.y < b.y + b.h - 0.5 && b.y < a.y + a.h - 0.5;
+function sceneRect(scene) {
+  const d = scene.dimensions ?? {};
+  const r = d.sceneRect;
+  if (r) return { x: r.x, y: r.y, w: r.width, h: r.height };
+  return { x: d.sceneX ?? 0, y: d.sceneY ?? 0, w: d.sceneWidth ?? scene.width, h: d.sceneHeight ?? scene.height };
+}
+function ring(r, bw, bh, w, h) {
+  const places = [];
+  for (let ox = 1 - r - w; ox <= bw + r - 1; ox++) {
+    for (let oy = 1 - r - h; oy <= bh + r - 1; oy++) {
+      const sx = ox >= bw ? ox - bw + 1 : ox + w <= 0 ? 1 - ox - w : 0;
+      const sy = oy >= bh ? oy - bh + 1 : oy + h <= 0 ? 1 - oy - h : 0;
+      if (Math.max(sx, sy) !== r) continue;
+      const right = ox >= bw, below = oy >= bh;
+      const side = !sy ? right ? 0 : 2 : !sx ? below ? 1 : 3 : below ? right ? 4 : 5 : right ? 7 : 6;
+      const dx = 2 * ox + w - bw, dy = 2 * oy + h - bh;
+      places.push({ ox, oy, key: [sx && sy ? 1 : 0, dx * dx + dy * dy, side] });
+    }
+  }
+  return places.sort((a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1] || a.key[2] - b.key[2]);
+}
+function freeSpot(buyer, w, h, taken) {
+  const scene = buyer.parent;
+  const g = scene.grid.size;
+  const bounds = sceneRect(scene);
+  const bw = cells(buyer.width), bh = cells(buyer.height);
+  const most = Math.ceil(Math.max(bounds.w, bounds.h) / g) + 1;
+  for (let r = 1; r <= most; r++) {
+    let inside = false;
+    for (const { ox, oy } of ring(r, bw, bh, w, h)) {
+      const spot = { x: buyer.x + ox * g, y: buyer.y + oy * g, w: w * g, h: h * g };
+      if (spot.x < bounds.x || spot.y < bounds.y || spot.x + spot.w > bounds.x + bounds.w || spot.y + spot.h > bounds.y + bounds.h) continue;
+      inside = true;
+      if (!taken.some((t) => overlaps(t, spot))) return spot;
+    }
+    if (!inside) return null;
+  }
+  return null;
+}
+async function placeToken(actor, buyer, taken) {
+  const scene = buyer.parent;
+  const spot = freeSpot(buyer, cells(actor.prototypeToken?.width), cells(actor.prototypeToken?.height), taken);
+  if (!spot) return null;
+  const level = buyer.level;
+  const tokenDocument = await actor.getTokenDocument({
+    x: spot.x,
+    y: spot.y,
+    elevation: buyer.elevation ?? 0,
+    ...typeof level === "string" && level ? { level } : {}
+  }, { parent: scene });
+  const [created] = await scene.createEmbeddedDocuments("Token", [tokenDocument.toObject()]);
+  if (!created) return null;
+  taken.push(spot);
+  return created;
+}
+function boughtActorData(source, customer, user) {
+  let data;
+  if (source.pack) data = game.actors.fromCompendium(source);
+  else {
+    data = source.toObject();
+    delete data._id;
+    delete data._stats;
+  }
+  data.ownership = { default: source.ownership?.default ?? 0, [user.id]: CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER };
+  data.folder = customer.folder?.id ?? null;
+  data.prototypeToken = { ...data.prototypeToken ?? {}, actorLink: true, disposition: CONST.TOKEN_DISPOSITIONS.FRIENDLY };
+  return data;
+}
+async function deliverCreatures(customer, user, token, lines, undo) {
+  const wanted = [];
+  for (const { item, quantity } of lines) {
+    const uuid = creatureSource(item);
+    if (!uuid) continue;
+    const source = await fromUuid(uuid);
+    if (source?.documentName !== "Actor") throw new TransferProblem(loc("Shop.CreatureMissing", { name: item.name }));
+    wanted.push({ source, quantity });
+  }
+  const actors = [];
+  if (!wanted.length) return { actors, placed: true };
+  const scene = token?.parent ?? null;
+  const g = scene?.grid.size ?? 0;
+  const taken = scene ? scene.tokens.map((t) => ({ x: t.x, y: t.y, w: cells(t.width) * g, h: cells(t.height) * g })) : [];
+  let placed = !!scene;
+  for (const { source, quantity } of wanted) {
+    for (let n = 0; n < quantity; n++) {
+      const actor = await Actor.implementation.create(boughtActorData(source, customer, user));
+      if (!actor) throw new TransferProblem(loc("Shop.Failed"));
+      actors.push(actor);
+      let created = null;
+      undo.push(async () => {
+        if (created?.parent?.tokens.has(created.id)) await created.delete();
+        if (game.actors.get(actor.id)) await actor.delete();
+      });
+      if (!scene) continue;
+      created = await placeToken(actor, token, taken);
+      if (!created) placed = false;
+    }
+  }
+  return { actors, placed };
+}
+
+// src/feature/shop/sessions.ts
+var SERVICE_ICON = "icons/svg/item-bag.svg";
+var MAX_UNLIMITED = 999;
+var REFRESH_DELAY = 200;
+var sessions2 = /* @__PURE__ */ new Map();
+function isShopping(actor) {
+  for (const session of sessions2.values()) {
+    if (session.merchantUuid === actor?.uuid || session.customerUuid === actor?.uuid) return true;
+  }
+  return false;
+}
+var inStock = (item) => item.type === "container" || !!shopFlags(item).unlimited || !(Number(item.system?.quantity) <= 0);
+var stockOf = (merchant) => {
+  const now = game.time.worldTime;
+  return merchant.items.filter((i) => isTradeable(i) && !i.system?.container && inStock(i) && !offerExpired(i, now));
+};
+var sellableOf = (customer) => customer.items.filter((i) => isTradeable(i) && inStock(i) && !isCreatureOffer(i) && !descendants(customer, i).length);
+var MAX_CREATURES = 20;
+function maxQuantity(item, unlimited) {
+  if (isCreatureOffer(item)) return Math.min(unlimited ? MAX_CREATURES : stackQuantity(item), MAX_CREATURES);
+  if (!unlimited) return stackQuantity(item);
+  return item.type === "container" ? 1 : MAX_UNLIMITED;
+}
+function dropLine(session, side, id) {
+  session.cart[side].delete(id);
+  session.terms[side].delete(id);
+}
+function dealOf(session, merchant, customer, commit = true) {
+  const drop = (side, id) => {
+    if (commit) dropLine(session, side, id);
+  };
+  const keep = (side, id, quantity) => {
+    if (commit) session.cart[side].set(id, quantity);
+  };
+  const config = merchantConfig(merchant);
+  const stock = new Map(stockOf(merchant).map((i) => [i.id, i]));
+  const sellable = new Map(sellableOf(customer).map((i) => [i.id, i]));
+  const services = new Map(merchantServices(merchant).map((s) => [SERVICE_PREFIX + s.id, s]));
+  const buy = [];
+  for (const [id, wanted] of [...session.cart.buy]) {
+    if (id.startsWith(SERVICE_PREFIX)) {
+      const service = services.get(id);
+      const unit2 = service ? session.terms.buy.get(id) ?? service.price : null;
+      const quantity2 = Math.min(wanted, MAX_UNLIMITED);
+      if (!service || unit2 === null || !Number.isFinite(unit2) || quantity2 < 1) {
+        drop("buy", id);
+        continue;
+      }
+      keep("buy", id, quantity2);
+      buy.push({
+        id,
+        name: service.name,
+        img: service.img || SERVICE_ICON,
+        quantity: quantity2,
+        unit: unit2,
+        proposed: service.price,
+        list: service.price,
+        per: 1,
+        unlimited: true,
+        container: false,
+        contents: 0,
+        service: true
+      });
+      continue;
+    }
+    const item = stock.get(id);
+    const proposed = item ? sellPrice(item, config) : null;
+    const unit = session.terms.buy.get(id) ?? proposed;
+    const unlimited = item ? shopFlags(item).unlimited : false;
+    const quantity = item ? Math.min(wanted, maxQuantity(item, unlimited)) : 0;
+    if (!item || unit === null || !Number.isFinite(unit) || quantity < 1) {
+      drop("buy", id);
+      continue;
+    }
+    keep("buy", id, quantity);
+    buy.push({
+      id,
+      name: item.name,
+      img: item.img ?? "",
+      quantity,
+      unit,
+      proposed,
+      list: listPrice(item),
+      per: pricePer(item),
+      unlimited,
+      container: item.type === "container",
+      contents: descendants(merchant, item).length
+    });
+  }
+  const offered = [];
+  for (const [id, wanted] of [...session.cart.sell]) {
+    const item = config.buysNothing ? null : sellable.get(id);
+    const quantity = item ? Math.min(wanted, stackQuantity(item)) : 0;
+    if (!item || quantity < 1) {
+      drop("sell", id);
+      continue;
+    }
+    keep("sell", id, quantity);
+    offered.push({ id, name: item.name, img: item.img ?? "", quantity, unit: buyPrice(item, config), list: listPrice(item), per: pricePer(item) });
+  }
+  const sells = [...session.terms.sell].map(([id, d]) => ({ id, ...d }));
+  const decided = applyDecision(offered, { discount: session.terms.discount, sells }, buy.length > 0);
+  const sell = decided.sells;
+  const totals = cartTotals(buy, sell.filter((s) => s.accepted), decided.discount);
+  return { buy, sell, discount: decided.discount, totals, signature: dealSignature(buy, sell, decided.discount) };
+}
+var isEmpty = (deal) => !deal.buy.length && !deal.sell.some((s) => s.accepted);
+function current(session, commit = true) {
+  if (sessions2.get(session.id) !== session) return null;
+  const merchant = fromUuidSync(session.merchantUuid);
+  const customer = fromUuidSync(session.customerUuid);
+  const user = game.users.get(session.userId);
+  if (!merchant || !customer || !user) {
+    endSession2(session, "unavailable", "warn", () => loc("Shop.Unavailable"));
+    return null;
+  }
+  if (!isMerchant(merchant)) {
+    endSession2(session, "closed", "notice", (u) => loc("Shop.Closed", { merchant: shopName(merchant, u) }));
+    return null;
+  }
+  const deal = dealOf(session, merchant, customer, commit);
+  if (commit && session.agreed.customer !== deal.signature) session.agreed.customer = null;
+  if (commit && session.agreed.gm !== deal.signature) session.agreed.gm = null;
+  return { merchant, customer, user, deal };
+}
+var watchersOf = (session) => [...session.watchers].map((id) => game.users.get(id)).filter((u) => u?.active);
+function stateFor(session, now, viewer = now.user) {
+  const { merchant, customer, deal } = now;
+  const config = merchantConfig(merchant);
+  const watching = viewer.id !== session.userId;
+  return {
+    watching,
+    watchers: watchersOf(session).map((u) => u.name),
+    merchant: { name: shopName(merchant, viewer, config), img: config.img || (merchant.img ?? "") },
+    buysNothing: config.buysNothing,
+    showItems: config.showItems,
+    info: { description: config.description, hours: hoursInfo(merchant, config) },
+    customer: { name: customer.name, img: customer.img ?? "", uuid: watching ? null : customer.uuid },
+    stock: stockOf(merchant).map((item) => ({
+      id: item.id,
+      name: item.name,
+      img: item.img,
+      type: item.type,
+      quantity: stackQuantity(item),
+      per: pricePer(item),
+      until: shopFlags(item).until,
+      unlimited: shopFlags(item).unlimited,
+      container: item.type === "container",
+      unit: sellPrice(item, config),
+      contents: descendants(merchant, item).length,
+      creature: isCreatureOffer(item)
+    })),
+    services: merchantServices(merchant).map((s) => ({
+      id: SERVICE_PREFIX + s.id,
+      name: s.name,
+      img: s.img || SERVICE_ICON,
+      category: s.category,
+      description: s.description,
+      unit: s.price,
+      service: true
+    })),
+    sellable: watching || config.buysNothing ? [] : sellableOf(customer).map((item) => ({
+      id: item.id,
+      name: item.name,
+      img: item.img,
+      type: item.type,
+      quantity: stackQuantity(item),
+      per: pricePer(item),
+      unit: buyPrice(item, config)
+    })),
+    deal: {
+      buy: deal.buy.map(({ id, name, img, quantity, unit, proposed, per, unlimited, container, service }) => ({ id, name, img, quantity, unit, proposed, per, unlimited, container, service: !!service })),
+      sell: deal.sell.map(({ id, name, img, quantity, unit, proposed, per, accepted }) => ({ id, name, img, quantity, unit, proposed, per, accepted })),
+      discount: deal.discount,
+      totals: deal.totals,
+      signature: deal.signature
+    },
+    agreed: { customer: !!session.agreed.customer, gm: !!session.agreed.gm },
+    executing: session.executing
+  };
+}
+function sendState(session, source = null) {
+  if (sessions2.get(session.id) !== session) return;
+  clearTimeout(session.timer);
+  session.timer = null;
+  const before = { ...session.agreed };
+  const now = current(session);
+  if (!now) return;
+  if (before.customer && !session.agreed.customer && source !== "customer") notifyUser(session.userId, "notice", loc("Shop.Adjusted"));
+  if (before.gm && !session.agreed.gm && source !== "gm") {
+    notifyUser(game.user.id, "notice", loc("Shop.GMAgreementLost", { actor: now.customer.name }));
+  }
+  sendToUser(session.userId, { type: "shopState", shopId: session.id, state: stateFor(session, now) });
+  for (const watcher of watchersOf(session)) {
+    sendToUser(watcher.id, { type: "shopState", shopId: session.id, state: stateFor(session, now, watcher) });
+  }
+  Hooks.callAll("pack-and-ledger.shopSession", hookData(session));
+}
+var hookData = (session, extra = {}) => ({ shopId: session.id, merchantUuid: session.merchantUuid, ...extra });
+function scheduleState(session) {
+  if (session.executing) return;
+  clearTimeout(session.timer);
+  session.timer = setTimeout(() => {
+    session.timer = null;
+    if (!session.executing) sendState(session);
+  }, REFRESH_DELAY);
+}
+function endSession2(session, reason, level, message) {
+  if (sessions2.get(session.id) !== session) return;
+  sessions2.delete(session.id);
+  clearTimeout(session.timer);
+  sendToUser(session.userId, { type: "shopClosed", shopId: session.id, reason });
+  const user = game.users.get(session.userId);
+  if (message && user) notifyUser(user.id, level, message(user));
+  const merchant = fromUuidSync(session.merchantUuid);
+  for (const watcher of watchersOf(session)) {
+    sendToUser(watcher.id, { type: "shopClosed", shopId: session.id, reason: "free" });
+    if (merchant && isMerchant(merchant)) notifyUser(watcher.id, "info", loc("Shop.NowFree", { merchant: shopName(merchant, watcher) }));
+  }
+  Hooks.callAll("pack-and-ledger.shopSessionEnded", hookData(session, { reason }));
+}
+function failSale(session, message) {
+  if (sessions2.get(session.id) !== session) return;
+  const user = game.users.get(session.userId);
+  session.agreed = { customer: null, gm: null };
+  for (const u of /* @__PURE__ */ new Set([user, game.user])) if (u) notifyUser(u.id, "warn", message(u));
+  if (!user?.active) return endSession2(session, "disconnected");
+  sendState(session);
+}
+function bothAgreed(session) {
+  return !!session.agreed.customer && session.agreed.customer === session.agreed.gm;
+}
+var resolve = async (uuid) => {
+  if (typeof uuid !== "string") return null;
+  try {
+    return await fromUuid(uuid);
+  } catch {
+    return null;
+  }
+};
+async function onShopOpen(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const merchant = await resolve(data.merchantUuid);
+  const customer = await resolve(data.customerUuid);
+  if (!canTrade(customer) || !customer.testUserPermission(user, "OWNER")) return;
+  if (!isMerchant(merchant) || merchant === customer) return notifyUser(user.id, "warn", loc("Shop.NotMerchant"));
+  const existing = [...sessions2.values()].find((s) => s.customerUuid === customer.uuid);
+  if (existing && existing.merchantUuid === merchant.uuid && existing.userId === user.id) {
+    sendState(existing);
+    return Hooks.callAll("pack-and-ledger.shopOpened", hookData(existing));
+  }
+  if (existing || isShopping(customer) || isTrading(customer)) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: customer.name }));
+  if (isTrading(merchant)) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: shopName(merchant, user) }));
+  if (!user.isGM && !inTradeRange(customer, merchant)) {
+    return notifyUser(user.id, "warn", loc("Shop.OutOfRange", { actor: customer.name, merchant: shopName(merchant, user) }));
+  }
+  if (!user.isGM && !shopOpenNow(merchant)) return notifyUser(user.id, "warn", closedMessage(merchant, user));
+  const serving = [...sessions2.values()].find((s) => s.merchantUuid === merchant.uuid);
+  if (serving) {
+    if (serving.userId === user.id) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: shopName(merchant, user) }));
+    const first = !serving.watchers.has(user.id);
+    serving.watchers.add(user.id);
+    if (first) {
+      const name = fromUuidSync(serving.customerUuid)?.name ?? "?";
+      notifyUser(user.id, "info", loc("Shop.Watching", { merchant: shopName(merchant, user), actor: name }));
+    }
+    return sendState(serving);
+  }
+  const session = {
+    id: foundry.utils.randomID(),
+    merchantUuid: merchant.uuid,
+    customerUuid: customer.uuid,
+    userId: user.id,
+    cart: { buy: /* @__PURE__ */ new Map(), sell: /* @__PURE__ */ new Map() },
+    terms: { discount: 0, buy: /* @__PURE__ */ new Map(), sell: /* @__PURE__ */ new Map() },
+    agreed: { customer: null, gm: null },
+    watchers: /* @__PURE__ */ new Set(),
+    executing: false,
+    timer: null
+  };
+  sessions2.set(session.id, session);
+  sendState(session);
+  if (sessions2.get(session.id) === session) Hooks.callAll("pack-and-ledger.shopOpened", hookData(session));
+}
+function ownSession(data, user) {
+  const session = sessions2.get(data?.shopId);
+  if (!session) {
+    sendToUser(user.id, { type: "shopClosed", shopId: data?.shopId, reason: "unavailable" });
+    return null;
+  }
+  return session.userId === user.id ? session : null;
+}
+var sideOf = (value) => value === "buy" || value === "sell" ? value : null;
+function onShopCart(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const session = ownSession(data, user);
+  const side = sideOf(data?.side);
+  if (!session || session.executing || !side || typeof data.id !== "string") return;
+  const cart = session.cart[side];
+  const set = Math.floor(Number(data.quantity));
+  const quantity = Number.isFinite(set) ? set : (cart.get(data.id) ?? 0) + (Math.floor(Number(data.delta)) || 0);
+  if (quantity < 1) dropLine(session, side, data.id);
+  else if (!cart.has(data.id) && cart.size >= MAX_OFFER_ITEMS) return notifyUser(user.id, "warn", loc("Shop.BasketFull"));
+  else cart.set(data.id, Math.min(quantity, MAX_UNLIMITED));
+  sendState(session, "customer");
+}
+function onShopAgree(data, senderId) {
+  const user = requestingUser(data, senderId);
+  if (!user) return;
+  const session = ownSession(data, user);
+  if (!session || session.executing) return;
+  const now = current(session);
+  if (!now) return;
+  if (data.agree === false) session.agreed.customer = null;
+  else if (data.signature === now.deal.signature && !isEmpty(now.deal)) session.agreed.customer = now.deal.signature;
+  if (bothAgreed(session)) return executeSale(session);
+  sendState(session, "customer");
+  if (session.agreed.customer && sessions2.get(session.id) === session) Hooks.callAll("pack-and-ledger.shopOpened", hookData(session));
+}
+async function onShopItem(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions2.get(data?.shopId);
+  if (!user || !session || session.userId !== user.id && !session.watchers.has(user.id)) return;
+  const merchant = fromUuidSync(session.merchantUuid);
+  if (!merchant || !merchantConfig(merchant).showItems) return;
+  const item = stockOf(merchant).find((i) => i.id === data.itemId);
+  if (!item) return;
+  const creature = creatureSource(item);
+  if (creature) {
+    const actor = await fromUuid(creature).catch(() => null);
+    if (!actor) return;
+    const actorData = actor.toObject();
+    delete actorData._stats;
+    delete actorData.flags?.[MODULE_ID];
+    sendToUser(user.id, { type: "shopItemData", shopId: session.id, kind: "Actor", data: actorData });
+    return;
+  }
+  const source = item.toObject();
+  delete source.flags?.[MODULE_ID];
+  const shown = source.system?.identified === false ? unidentifiedData(source) : source;
+  sendToUser(user.id, { type: "shopItemData", shopId: session.id, data: shown });
+}
+function unidentifiedData(source) {
+  const unknown = source.system?.unidentified ?? {};
+  const name = unknown.name || game.i18n.localize("DND5E.Unidentified.Title");
+  const description = unknown.description ?? "";
+  const kind = source.system?.type?.value;
+  return {
+    _id: source._id,
+    name,
+    type: source.type,
+    img: source.img,
+    system: {
+      identified: false,
+      quantity: source.system?.quantity,
+      weight: foundry.utils.deepClone(source.system?.weight),
+      ...kind ? { type: { value: kind } } : {},
+      unidentified: { name, description },
+      description: { value: description, chat: "" }
+    }
+  };
+}
+function onShopCancel(data, senderId) {
+  const user = requestingUser(data, senderId);
+  const session = sessions2.get(data?.shopId);
+  if (!user || !session) return;
+  if (session.watchers.delete(user.id)) return sendState(session);
+  if (session.userId !== user.id || session.executing) return;
+  if (user !== game.user) notifyUser(game.user.id, "notice", loc("Shop.Cancelled", { actor: fromUuidSync(session.customerUuid)?.name ?? "?" }));
+  endSession2(session, "cancelled");
+}
+function gmSession(shopId) {
+  const session = sessions2.get(shopId);
+  return game.user.isGM && session && !session.executing ? session : null;
+}
+var gmUnit = (unit) => {
+  if (unit === null || unit === void 0 || typeof unit === "string" && !unit.trim()) return null;
+  const n = Number(unit);
+  return Number.isFinite(n) ? Math.max(0, Math.round(n * 1e4) / 1e4) : void 0;
+};
+function shopSessionView(shopId) {
+  const session = sessions2.get(shopId);
+  if (!session) return null;
+  const now = current(session, false);
+  if (!now) return null;
+  const { merchant, customer, user, deal } = now;
+  return {
+    shopId: session.id,
+    merchant: { name: merchantConfig(merchant).name || merchant.name, img: merchant.img ?? "", uuid: session.merchantUuid },
+    customer: { name: customer.name, img: customer.img ?? "", uuid: session.customerUuid },
+    user: user.name ?? "",
+    watchers: watchersOf(session).map((u) => u.name),
+    deal,
+    terms: { discount: session.terms.discount, buy: new Map(session.terms.buy), sell: new Map(session.terms.sell) },
+    agreed: {
+      customer: !!session.agreed.customer && session.agreed.customer === deal.signature,
+      gm: !!session.agreed.gm && session.agreed.gm === deal.signature
+    },
+    executing: session.executing,
+    funds: {
+      customer: toCopper(coinsOf(customer)),
+      merchant: merchantConfig(merchant).unlimitedFunds ? null : toCopper(coinsOf(merchant))
+    }
+  };
+}
+function openShops(merchantUuid) {
+  return [...sessions2.values()].filter((s) => !merchantUuid || s.merchantUuid === merchantUuid).map((s) => shopSessionView(s.id)).filter((v) => !!v);
+}
+function shopSetTerms(shopId, change2) {
+  const session = gmSession(shopId);
+  if (!session) return false;
+  if (change2.discount !== void 0) {
+    const discount = Number(change2.discount);
+    session.terms.discount = Number.isFinite(discount) ? Math.min(100, Math.max(0, discount)) : 0;
+  }
+  const side = sideOf(change2.side);
+  if (side && typeof change2.id === "string" && session.cart[side].has(change2.id)) {
+    const unit = "unit" in change2 ? gmUnit(change2.unit) : void 0;
+    if (side === "buy") {
+      if (unit === null) session.terms.buy.delete(change2.id);
+      else if (unit !== void 0) session.terms.buy.set(change2.id, unit);
+    } else {
+      const terms = { ...session.terms.sell.get(change2.id) };
+      if (unit === null) delete terms.unit;
+      else if (unit !== void 0) terms.unit = unit;
+      if (typeof change2.accepted === "boolean") terms.accepted = change2.accepted;
+      session.terms.sell.set(change2.id, terms);
+    }
+  }
+  sendState(session, "gm");
+  return true;
+}
+function shopRemoveLine(shopId, side, id) {
+  const session = gmSession(shopId);
+  if (!session || !sideOf(side)) return false;
+  dropLine(session, side, id);
+  sendState(session, "gm");
+  return true;
+}
+async function shopGMAgree(shopId, agree, signature) {
+  const session = gmSession(shopId);
+  if (!session) return false;
+  const now = current(session);
+  if (!now) return false;
+  if (!agree) session.agreed.gm = null;
+  else if (signature === now.deal.signature && !isEmpty(now.deal)) session.agreed.gm = now.deal.signature;
+  else {
+    sendState(session, "gm");
+    return false;
+  }
+  if (bothAgreed(session)) await executeSale(session);
+  else sendState(session, "gm");
+  return true;
+}
+function shopReject(shopId) {
+  const session = gmSession(shopId);
+  if (!session) return false;
+  const merchant = fromUuidSync(session.merchantUuid);
+  endSession2(session, "rejected", "notice", (u) => loc("Shop.Rejected", { merchant: merchant ? shopName(merchant, u) : "?" }));
+  return true;
+}
+function executeSale(session) {
+  const signature = session.agreed.customer;
+  session.executing = true;
+  sendState(session);
+  return enqueueTransfer(() => performSale(session, signature)).catch((err) => {
+    logError(`Sale failed`, err);
+    if (sessions2.get(session.id) === session) failSale(session, () => loc("Shop.Failed"));
+  }).finally(() => {
+    session.executing = false;
+    if (sessions2.get(session.id) === session) sendState(session);
+  });
+}
+function copyEntry(merchant, line) {
+  const item = merchant.items.get(line.id);
+  const nested = descendants(merchant, item);
+  return { item, quantity: line.quantity, stack: stackQuantity(item), nested, data: transferData(item, nested, line.quantity) };
+}
+function withoutShopFlags(entries) {
+  for (const data of entries.flatMap((e) => e.data)) {
+    const own2 = data.flags?.[MODULE_ID];
+    if (own2 && "shop" in own2) delete own2.shop;
+  }
+  return entries;
+}
+var SaleProblem = class extends TransferProblem {
+  build;
+  constructor(build) {
+    super(build(game.user));
+    this.build = build;
+  }
+};
+function paymentNow(customer, merchant, net) {
+  const payment = shopPayment(coinsOf(customer), merchantConfig(merchant).unlimitedFunds ? null : coinsOf(merchant), net, changeOrder());
+  if (payment === "cannotPay") {
+    const amount2 = goldText(net);
+    throw new SaleProblem(() => loc("Shop.CannotPay", { actor: customer.name, amount: amount2 }));
+  }
+  if (payment === "merchantBroke") {
+    const amount2 = goldText(-net);
+    throw new SaleProblem((u) => loc("Shop.MerchantBroke", { merchant: shopName(merchant, u), amount: amount2 }));
+  }
+  return payment;
+}
+var problemMessage = (err) => err instanceof SaleProblem ? err.build : () => err.message;
+function totalText(net) {
+  if (net > 0) return loc("Shop.LogPaid", { amount: goldText(net) });
+  if (net < 0) return loc("Shop.LogReceived", { amount: goldText(-net) });
+  return loc("Shop.LogEven");
+}
+function customerToken(customer, merchant) {
+  const scenes = [
+    merchant.token?.parent,
+    ...game.scenes.filter((s) => s.tokens.some((t) => t.actor === merchant)),
+    game.scenes.active,
+    game.scenes.viewed,
+    ...game.scenes
+  ];
+  for (const scene of scenes) {
+    const token = scene ? sceneToken(scene, customer) : null;
+    if (token) return token;
+  }
+  return null;
+}
+async function pileBeside(customer, merchant, groups) {
+  const token = customerToken(customer, merchant);
+  if (!token) return null;
+  const g = token.parent.grid.size;
+  return createPile(token.parent, {
+    x: token.x + token.width * g + PILE_SIZE * g / 2,
+    y: token.y + token.height * g / 2,
+    elevation: token.elevation ?? 0,
+    level: token.level
+  }, groups.flat());
+}
+async function performSale(session, signature) {
+  if (sessions2.get(session.id) !== session) return;
+  const merchant = await fromUuid(session.merchantUuid);
+  const customer = await fromUuid(session.customerUuid);
+  const user = game.users.get(session.userId);
+  if (!merchant || !customer || !user || !customer.testUserPermission(user, "OWNER")) {
+    return endSession2(session, "unavailable", "warn", () => loc("Shop.Unavailable"));
+  }
+  if (!isMerchant(merchant)) return endSession2(session, "closed", "notice", (u) => loc("Shop.Closed", { merchant: shopName(merchant, u) }));
+  if (!user.isGM && !inTradeRange(customer, merchant)) {
+    return failSale(session, (u) => loc("Shop.OutOfRange", { actor: customer.name, merchant: shopName(merchant, u) }));
+  }
+  const changed = loc("Shop.Changed");
+  const deal = dealOf(session, merchant, customer);
+  if (deal.signature !== signature) return failSale(session, () => changed);
+  const { discount } = deal;
+  const buy = deal.buy.filter((line) => !line.service);
+  const services = deal.buy.filter((line) => line.service);
+  const sold = deal.sell.filter((s) => s.accepted);
+  const nothing = emptyCurrency();
+  let toCustomer;
+  let limited;
+  let fromCustomer;
+  try {
+    const unlimited = buy.map((line) => line.unlimited);
+    toCustomer = buy.map((line, i) => unlimited[i] ? copyEntry(merchant, line) : resolveOffer(merchant, { items: [line], currency: nothing }, changed)[0]);
+    limited = toCustomer.filter((_, i) => !unlimited[i]);
+    fromCustomer = resolveOffer(customer, { items: sold, currency: nothing }, changed);
+  } catch (err) {
+    if (err instanceof TransferProblem) return failSale(session, () => err.message);
+    throw err;
+  }
+  if (!toCustomer.length && !fromCustomer.length && !services.length) return failSale(session, () => loc("Shop.Nothing"));
+  withoutShopFlags(toCustomer);
+  withoutShopFlags(fromCustomer);
+  const totals = deal.totals;
+  if (!Number.isFinite(totals.net)) return failSale(session, () => loc("Shop.Failed"));
+  try {
+    paymentNow(customer, merchant, totals.net);
+  } catch (err) {
+    if (err instanceof TransferProblem) return failSale(session, problemMessage(err));
+    throw err;
+  }
+  const bought = [
+    ...cardEntries(toCustomer, nothing).items,
+    ...services.map((line) => ({ name: line.name, img: line.img, quantity: line.quantity, contents: 0 }))
+  ];
+  const given = cardEntries(fromCustomer, nothing).items;
+  const lines = [
+    ...buy.map((line, i) => `${merchant.name} \u2192 ${customer.name}: ${itemLabel(logName(toCustomer[i].item), line.quantity)} (${goldText(lineTotal(line.unit, line.quantity))})`),
+    ...services.map((line) => `${merchant.name} \u2192 ${customer.name}: ${itemLabel(line.name, line.quantity)} (${goldText(lineTotal(line.unit, line.quantity))})`),
+    ...sold.map((line, i) => `${customer.name} \u2192 ${merchant.name}: ${itemLabel(logName(fromCustomer[i].item), line.quantity)} (${goldText(lineTotal(line.unit, line.quantity))})`)
+  ];
+  if (totals.discount) lines.push(loc("Shop.LogDiscount", { percent: discount, amount: goldText(totals.discount) }));
+  const undo = [];
+  let customerBefore;
+  let merchantBefore;
+  let payment;
+  const overflow = [];
+  let pile = null;
+  const creatures = toCustomer.filter((e) => isCreatureOffer(e.item));
+  const goods = toCustomer.filter((e) => !isCreatureOffer(e.item));
+  let delivered = null;
+  try {
+    await removeOffer(merchant, limited, undo, { keepEmpty: true, changed });
+    await removeOffer(customer, fromCustomer, undo, { changed });
+    if (!await giveOffer(customer, goods, user, undo, getSetting("pilesEnabled") ? overflow : void 0)) {
+      await rollback(undo);
+      return failSale(session, () => loc("Shop.Blocked", { actor: customer.name }));
+    }
+    if (overflow.length) {
+      pile = await pileBeside(customer, merchant, overflow);
+      if (!pile) {
+        await rollback(undo);
+        return failSale(session, () => loc("Shop.Blocked", { actor: customer.name }));
+      }
+      undo.push(() => pile.parent?.tokens.has(pile.id) && pile.delete());
+    }
+    if (!await giveOffer(merchant, fromCustomer, game.user, undo)) {
+      await rollback(undo);
+      return failSale(session, (u) => loc("Shop.MerchantBlocked", { merchant: shopName(merchant, u) }));
+    }
+    if (creatures.length) delivered = await deliverCreatures(customer, user, customerToken(customer, merchant), creatures, undo);
+    customerBefore = coinsOf(customer);
+    merchantBefore = coinsOf(merchant);
+    payment = paymentNow(customer, merchant, totals.net);
+    await setCoins(customer, customerBefore, payment.customer, undo, "shop");
+    if (payment.merchant) await setCoins(merchant, merchantBefore, payment.merchant, undo, "shop");
+  } catch (err) {
+    await rollback(undo);
+    if (err instanceof TransferProblem) return failSale(session, problemMessage(err));
+    throw err;
+  }
+  endSession2(session, "done", "info", (u) => loc("Shop.Done", { merchant: shopName(merchant, u) }));
+  if (pile) {
+    const names = overflow.map(([top]) => itemLabel(top.name, stackQuantity(top))).join(", ");
+    for (const u of /* @__PURE__ */ new Set([user, game.user])) notifyUser(u.id, "warn", loc("Shop.Overflow", { actor: customer.name, items: names }));
+    lines.push(loc("Shop.LogOverflow", { actor: customer.name, items: names }));
+  }
+  if (delivered && !delivered.placed) {
+    for (const u of /* @__PURE__ */ new Set([user, game.user])) notifyUser(u.id, "notice", loc("Shop.CreatureNoToken", { actor: customer.name }));
+  }
+  try {
+    logModuleCoins("shop", customer, user, customerBefore, merchant.name);
+    if (payment.merchant) logModuleCoins("shop", merchant, user, merchantBefore, customer.name);
+    logChange("shop", { actor: customer.name, data: { partner: merchant.name, total: totalText(totals.net) }, items: lines }, user);
+  } catch (err) {
+    logError(`Could not log the sale`, err);
+  }
+  try {
+    await postShopCard(merchant, customer, bought, given, totals);
+  } catch (err) {
+    logError(`Could not post the sale to the chat`, err);
+  }
+}
+function refreshFor(actor) {
+  if (!sessions2.size || !actor?.uuid) return;
+  for (const session of sessions2.values()) {
+    if (session.merchantUuid === actor.uuid || session.customerUuid === actor.uuid) scheduleState(session);
+  }
+}
+var timeKeys = /* @__PURE__ */ new Map();
+function onShopWorldTime() {
+  for (const session of sessions2.values()) {
+    const merchant = fromUuidSync(session.merchantUuid);
+    if (!merchant) continue;
+    const key = timeKey(merchant, merchant.items);
+    if (timeKeys.get(session.id) === key) continue;
+    timeKeys.set(session.id, key);
+    scheduleState(session);
+  }
+  for (const id of timeKeys.keys()) if (!sessions2.has(id)) timeKeys.delete(id);
+}
+function onShopItemChange(item) {
+  refreshFor(item?.parent);
+}
+function onShopActorUpdate(actor, changes) {
+  if (!sessions2.size) return;
+  const merchantChanged = foundry.utils.hasProperty(changes, `flags.${MODULE_ID}`);
+  if (!merchantChanged && !foundry.utils.hasProperty(changes, "system.currency")) return;
+  for (const session of [...sessions2.values()]) {
+    if (merchantChanged && session.merchantUuid === actor.uuid && !session.executing && !isMerchant(actor)) {
+      endSession2(session, "closed", "notice", (u) => loc("Shop.Closed", { merchant: shopName(actor, u) }));
+    }
+  }
+  refreshFor(actor);
+}
+function onShopActorDelete(document2) {
+  const actor = document2?.documentName === "Token" ? document2.actorLink ? null : document2.actor : document2;
+  if (!actor || !sessions2.size) return;
+  for (const session of [...sessions2.values()]) {
+    if (session.executing || session.merchantUuid !== actor.uuid && session.customerUuid !== actor.uuid) continue;
+    endSession2(session, "unavailable", "warn", () => loc("Shop.Unavailable"));
+  }
+}
+function onShopUserConnected(user, connected) {
+  if (!sessions2.size) return;
+  const active = game.user === game.users.activeGM;
+  for (const session of [...sessions2.values()]) {
+    if (!connected && session.watchers.delete(user.id) && !session.executing) sendState(session);
+    if (session.executing) continue;
+    if (!active) endSession2(session, "unavailable", "warn", () => loc("Shop.Unavailable"));
+    else if (!connected && session.userId === user.id) {
+      notifyUser(game.user.id, "notice", loc("Shop.Cancelled", { actor: fromUuidSync(session.customerUuid)?.name ?? "?" }));
+      endSession2(session, "disconnected");
+    }
+  }
+}
+
+// src/ui/shop-categories.ts
+var LIMITED = "limited";
+var CREATURES = "creatures";
+var SERVICE_GROUP = "service:";
+var serviceGroup = (category) => SERVICE_GROUP + (category ?? "");
+var ORDER = [LIMITED, "weapon", "equipment", "consumable", "tool", "container", "loot"];
+function categoryLabel(type) {
+  if (type === LIMITED) return loc("Shop.LimitedOffers");
+  if (type === CREATURES) return loc("Shop.Creatures");
+  if (type.startsWith(SERVICE_GROUP)) return type.slice(SERVICE_GROUP.length) || loc("Shop.Services");
+  const key = `TYPES.Item.${type}Pl`;
+  const plural = game.i18n.localize(key);
+  if (plural !== key) return plural;
+  const single = CONFIG.Item?.typeLabels?.[type];
+  return single ? game.i18n.localize(single) : type;
+}
+function byCategory(entries, typeOf) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const entry of entries) {
+    const type = typeOf(entry) || "";
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(entry);
+  }
+  const rank = (type) => {
+    if (type === LIMITED) return -2;
+    if (type.startsWith(SERVICE_GROUP)) return -1;
+    if (type === CREATURES) return -0.5;
+    const i = ORDER.indexOf(type);
+    return i < 0 ? ORDER.length : i;
+  };
+  return [...groups].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b)).map(([type, list]) => ({
+    type,
+    label: categoryLabel(type),
+    entries: list.sort((x, y) => x.name.localeCompare(y.name, game.i18n.lang))
+  }));
+}
+
+// src/ui/shop-app.ts
+var apps2 = /* @__PURE__ */ new Map();
+var left = /* @__PURE__ */ new Set();
+function forgetLeftShops() {
+  left.clear();
+}
+var ShopAppClass = null;
+function lineHtml(unit, quantity, per = 1) {
+  let each = "";
+  if (per > 1) each = ` <span class="each">(${unitHtml(unit, per)})</span>`;
+  else if (quantity > 1) each = ` <span class="each">${esc(loc("Shop.Each", { count: quantity }))} ${unitHtml(unit)}</span>`;
+  return `${copperHtml(lineTotal(unit, quantity))}${each}`;
+}
+function descriptionHtml(text4) {
+  if (!text4) return "";
+  return String(text4).split(/\n{2,}/).map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`).join("");
+}
+function showPicture(src, title) {
+  if (!src) return;
+  const ImagePopout = foundry.applications.apps.ImagePopout;
+  new ImagePopout({ src, window: { title } }).render({ force: true });
+}
+var summaryRow = (label2, amount2, cls = "") => `<div class="row ${cls}"><span class="label">${esc(label2)}</span><span class="amount">${amount2}</span></div>`;
+function agreementHtml(entries) {
+  return `<div class="shop-chips">${entries.map(({ yes, name }) => `<span class="chip ${yes ? "yes" : "no"}"
+    data-tooltip-text="${esc(loc(yes ? "Shop.AgreedBy" : "Shop.NotAgreedBy", { name }))}">
+    <i class="fa-solid ${yes ? "fa-circle-check" : "fa-hourglass-half"}" inert></i> ${esc(name)}</span>`).join("")}</div>`;
+}
+function getShopAppClass() {
+  if (ShopAppClass) return ShopAppClass;
+  const { ApplicationV2 } = foundry.applications.api;
+  ShopAppClass = class ShopApp extends ApplicationV2 {
+    shopId;
+    /** The shop as last sent by the GM (`state` is taken by ApplicationV2 for its render state). */
+    shop;
+    /** Quantities typed next to the lists, kept across renders. */
+    amounts = /* @__PURE__ */ new Map();
+    /** What the customer searches for in the lists. */
+    search = "";
+    ended = false;
+    constructor(shopId, state2, options = {}) {
+      super({ id: `pack-ledger-shop-${shopId}`, ...options });
+      this.shopId = shopId;
+      this.shop = state2;
+    }
+    static DEFAULT_OPTIONS = {
+      classes: ["pack-ledger-shop-window"],
+      window: { icon: "fa-solid fa-store", resizable: true },
+      position: { width: 1320, height: 930 },
+      actions: {
+        add: ShopApp.#onAdd,
+        remove: ShopApp.#onRemove,
+        agree: ShopApp.#onAgree,
+        withdraw: ShopApp.#onWithdraw,
+        leave: ShopApp.#onLeave,
+        viewItem: ShopApp.#onViewItem
+      }
+    };
+    get title() {
+      if (this.watching) return loc("Shop.WatchTitle", { merchant: this.shop.merchant.name, actor: this.shop.customer.name });
+      return loc("Shop.Title", { merchant: this.shop.merchant.name });
+    }
+    /** Someone else is shopping; this window only watches. */
+    get watching() {
+      return !!this.shop.watching;
+    }
+    /** The user's own shopping actor. */
+    get actor() {
+      return this.shop.customer.uuid ? fromUuidSync(this.shop.customer.uuid) : null;
+    }
+    get deal() {
+      return this.shop.deal;
+    }
+    /** Nothing can be changed while the sale is being booked. */
+    get locked() {
+      return !!this.shop.executing || this.watching;
+    }
+    update(state2) {
+      this.shop = state2;
+    }
+    /** The most pieces of an entry one line can hold. */
+    #max(side, entry) {
+      if (side === "buy" && entry.service) return MAX_UNLIMITED;
+      if (side === "buy" && entry.unlimited) return entry.container ? 1 : MAX_UNLIMITED;
+      return Math.max(0, Math.floor(Number(entry.quantity) || 0));
+    }
+    /** Pieces of an item in the basket. */
+    #inBasket(side, id) {
+      return this.deal[side].find((l) => l.id === id)?.quantity ?? 0;
+    }
+    /** An entry of the stock (with the services) or of the customer's items. */
+    #entry(side, id) {
+      const entries = side === "buy" ? [...this.shop.stock, ...this.shop.services ?? []] : this.shop.sellable;
+      return entries.find((e) => e.id === id);
+    }
+    /* ---------------------------------------- */
+    async _renderHTML() {
+      const root = document.createElement("div");
+      const selling = !this.watching && !this.shop.buysNothing;
+      root.className = `pack-ledger-shop-content${this.watching ? " watching" : ""}${selling ? "" : " no-selling"}`;
+      root.innerHTML = `<div class="shop-body">
+          ${this.#renderHead()}
+          ${this.#renderList("buy")}
+          ${selling ? this.#renderList("sell") : ""}
+          ${this.#renderBasket()}
+        </div>`;
+      return root;
+    }
+    /** Keeps the scroll position of the lists and the field being typed in, which are built anew on every render. */
+    _replaceHTML(result, content) {
+      replaceKeepingFocus(content, result);
+    }
+    _onRender(context, options) {
+      super._onRender?.(context, options);
+      if (this.window?.title instanceof HTMLElement) this.window.title.textContent = this.title;
+      for (const input of this.element.querySelectorAll("input.shop-qty")) {
+        input.addEventListener("input", (event) => this.amounts.set(event.currentTarget.name, event.currentTarget.value));
+      }
+      for (const input of this.element.querySelectorAll("input.basket-qty")) {
+        input.addEventListener("change", (event) => this.#onBasketQuantity(event.currentTarget));
+      }
+      this.element.querySelector("input.shop-search")?.addEventListener("input", (event) => {
+        this.search = event.currentTarget.value;
+        this.#applySearch();
+      });
+      this.#applySearch();
+      this.element.querySelector("img.shop-picture")?.addEventListener("dblclick", () => showPicture(this.shop.merchant.img, this.shop.merchant.name));
+    }
+    /** Only the items whose name holds the search show; a group with none of them hides. */
+    #applySearch() {
+      const term = this.search.trim().toLocaleLowerCase(game.i18n.lang);
+      for (const row of this.element.querySelectorAll(".shop-list li.shop-row")) {
+        row.hidden = !!term && !String(row.dataset.name ?? "").includes(term);
+      }
+      for (const group of this.element.querySelectorAll(".shop-list .shop-category")) {
+        group.hidden = ![...group.querySelectorAll("li.shop-row")].some((row) => !row.hidden);
+      }
+    }
+    _onClose(options) {
+      super._onClose?.(options);
+      if (apps2.get(this.shopId) === this) apps2.delete(this.shopId);
+      if (this.ended) return;
+      left.add(this.shopId);
+      sendShopCancel(this.shopId);
+    }
+    /* ---------------------------------------- */
+    /** The shop's picture, name, description, opening hours and notes, kept compact; the purse top right, above the basket. */
+    #renderHead() {
+      const { merchant, customer } = this.shop;
+      const info = this.shop.info ?? {};
+      const description = info.description ? `<div class="description">${descriptionHtml(info.description)}</div>` : "";
+      const actor = this.actor;
+      const purse = actor ? `<span class="purse">${esc(loc("Shop.Purse", { actor: customer.name }))} ${coinsHtml(coinsOf(actor), "\u2014")}</span>` : "";
+      const names = this.shop.watchers ?? [];
+      const watchers = names.length ? `<span class="watchers" data-tooltip-text="${esc(loc("Shop.Watchers"))}">
+        <i class="fa-solid fa-eye" inert></i> ${esc(names.join(", "))}</span>` : "";
+      const banner = this.watching ? `<span class="watch-note"><i class="fa-solid fa-eye" inert></i>
+        ${esc(loc("Shop.WatchingNote", { actor: customer.name, merchant: merchant.name }))}</span>` : "";
+      const buysNothing = this.shop.buysNothing && !this.watching ? `<span class="buys-nothing"><i class="fa-solid fa-ban" inert></i> ${esc(loc("Shop.BuysNothing"))}</span>` : "";
+      return `<header class="shop-hero">
+        <img class="shop-picture" src="${esc(merchant.img)}" alt="${esc(merchant.name)}" data-tooltip-text="${esc(loc("Shop.EnlargePicture"))}">
+        <div class="shop-intro">
+          <div class="shop-title"><h2 class="name">${esc(merchant.name)}</h2></div>
+          ${description}
+          <div class="shop-notes">${this.#renderHours(info.hours)}${banner}${watchers}${buysNothing}</div>
+        </div>
+      </header>
+      <div class="shop-purse">${purse}</div>`;
+    }
+    /** Open now or not, the hours and the closing days. */
+    #renderHours(hours) {
+      if (!hours) return "";
+      const parts = [];
+      if (hours.mode === "open") parts.push(esc(loc("Shop.AlwaysOpen")));
+      else {
+        parts.push(`<strong>${esc(loc(hours.open ? "Shop.StatusOpen" : "Shop.StatusClosed"))}</strong>`);
+        if (hours.text) parts.push(esc(loc("Shop.HoursLine", { hours: hours.text })));
+        if (hours.closedDays?.length) parts.push(esc(loc("Shop.ClosedOn", { days: hours.closedDays.join(", ") })));
+      }
+      const open2 = hours.mode === "open" || hours.open;
+      return `<span class="shop-hours ${open2 ? "open" : "closed"}"><i class="fa-solid ${open2 ? "fa-door-open" : "fa-door-closed"}" inert></i>
+        ${parts.join(" \xB7 ")}</span>`;
+    }
+    /** The merchant's stock (buy) or the customer's own items (sell). */
+    #renderList(side) {
+      const entries = side === "buy" ? [...this.shop.stock, ...this.shop.services ?? []] : this.shop.sellable;
+      const heading = side === "buy" ? loc("Shop.Stock") : loc("Shop.SellFrom", { actor: this.shop.customer.name });
+      const typeOf = (e) => e.service ? serviceGroup(e.category) : (e.until ?? null) !== null ? LIMITED : e.creature ? CREATURES : e.type;
+      const groups = byCategory([...entries], typeOf).map((g) => {
+        const service = g.type.startsWith(SERVICE_GROUP);
+        const icon = service ? `<i class="fa-solid fa-bell-concierge" inert></i> ` : "";
+        return `<div class="shop-category${g.type === LIMITED ? " limited" : ""}${service ? " services" : ""}">
+          <div class="pl-bar"><span class="title">${icon}${esc(g.label)}</span><span class="count">${g.entries.length}</span></div>
+          <ol>${g.entries.map((e) => this.#renderRow(side, e)).join("")}</ol>
+        </div>`;
+      }).join("");
+      const empty = side === "buy" ? loc("Shop.NothingForSale", { merchant: this.shop.merchant.name }) : loc("Shop.NothingToSell", { actor: this.shop.customer.name });
+      const search = side === "buy" ? `<input type="search" class="shop-search" data-field="search" value="${esc(this.search)}"
+          placeholder="${esc(loc("Shop.Search"))}" aria-label="${esc(loc("Shop.Search"))}">` : "";
+      return `<section class="shop-list ${side === "buy" ? "shop-stock" : "shop-sellable"}">
+        <div class="list-head"><h3>${esc(heading)}</h3>${search}</div>
+        <div class="shop-groups" data-scroll="${side}">${groups || `<p class="empty">${esc(empty)}</p>`}</div>
+      </section>`;
+    }
+    /**
+     * An entry's name, as a link to its sheet where that may be seen: the merchant's goods when the merchant shows them,
+     * the customer's own items always (not for watchers). Services have no sheet.
+     */
+    #itemName(side, entry) {
+      const linked = !entry.service && (side === "buy" ? !!this.shop.showItems : !this.watching);
+      if (!linked) return esc(entry.name);
+      return `<a class="item-link" data-action="viewItem" data-tooltip-text="${esc(loc("Shop.ViewItem"))}">${esc(entry.name)}</a>`;
+    }
+    #renderRow(side, entry) {
+      const unpriced = side === "buy" && entry.unit === null;
+      const available = unpriced ? 0 : this.#max(side, entry) - this.#inBasket(side, entry.id);
+      const locked = this.locked || available < 1;
+      const key = `${side}.${entry.id}`;
+      const suggested = Math.max(1, Number(entry.per) || 1);
+      const amount2 = Math.clamp(Math.floor(Number(this.amounts.get(key))) || suggested, 1, Math.max(1, available));
+      const quantity = entry.service ? `<span class="stock"></span>` : side === "buy" && entry.unlimited ? `<span class="stock unlimited" data-tooltip-text="${esc(loc("Shop.Unlimited"))}">\u221E</span>` : `<span class="stock">${entry.quantity > 1 ? `\xD7${entry.quantity}` : ""}</span>`;
+      const contents = entry.contents ? `<span class="contents">${esc(loc("Trade.Contents", { count: entry.contents }))}</span>` : "";
+      const limited = (entry.until ?? null) !== null ? `<span class="limited" data-tooltip-text="${esc(loc("Shop.LimitedHint"))}"><i class="fa-solid fa-hourglass-half" inert></i>
+            ${esc(loc("Shop.Remaining", { time: durationText(entry.until - game.time.worldTime) }))}</span>` : "";
+      let price;
+      if (unpriced) price = `<span class="price none">${esc(loc("Shop.NotForSale"))}</span>`;
+      else if (side === "sell" && !entry.unit) price = `<span class="price none" data-tooltip-text="${esc(loc("Shop.NoOfferHint"))}">${esc(loc("Shop.NoOffer"))}</span>`;
+      else price = `<span class="price">${unitHtml(entry.unit, entry.per)}</span>`;
+      const input = available > 1 && !this.locked ? `<input type="number" class="shop-qty" name="${esc(key)}" data-field="${esc(key)}" min="1" max="${available}" step="1" value="${amount2}" aria-label="${esc(loc("Shop.Quantity"))}">` : `<span class="shop-qty"></span>`;
+      const label2 = loc(side === "buy" ? "Shop.AddBuy" : "Shop.AddSell");
+      return `<li class="shop-row${unpriced ? " unpriced" : ""}" data-id="${esc(entry.id)}" data-side="${side}"
+        data-name="${esc(String(entry.name).toLocaleLowerCase(game.i18n.lang))}">
+        <img class="item-img" src="${esc(entry.img)}" alt="" inert>
+        <span class="name"${entry.description ? ` data-tooltip-text="${esc(entry.description)}"` : ""}>${this.#itemName(side, entry)}${contents}</span>${limited}
+        ${quantity}${price}${input}
+        <button type="button" data-action="add" data-tooltip-text="${esc(label2)}" aria-label="${esc(label2)}"${locked ? " disabled" : ""}>
+          <i class="fa-solid fa-cart-plus" inert></i></button>
+      </li>`;
+    }
+    /** The basket as the GM holds it, the totals, who agreed, and the buttons. */
+    #renderBasket() {
+      const deal = this.deal;
+      const section = (side, lines) => {
+        if (!lines.length) return "";
+        const heading = loc(side === "buy" ? "Shop.Buying" : "Shop.Selling");
+        return `<h4>${esc(heading)}</h4><ol>${lines.map((l) => this.#renderLine(side, l)).join("")}</ol>`;
+      };
+      const body = deal.buy.length || deal.sell.length ? `${section("buy", deal.buy)}${section("sell", deal.sell)}` : `<p class="empty">${esc(loc("Shop.BasketEmpty"))}</p>`;
+      return `<aside class="shop-basket">
+        <h3><i class="fa-solid fa-basket-shopping" inert></i> ${esc(loc("Shop.Basket"))}</h3>
+        <div class="basket-lines" data-scroll="basket">${body}</div>
+        ${this.#renderTotals()}
+        ${this.#renderAgreement()}
+        ${this.#renderFooter()}
+      </aside>`;
+    }
+    #renderLine(side, line) {
+      const refused = line.accepted === false;
+      const changed = !refused && line.proposed !== null && line.proposed !== void 0 && line.unit !== line.proposed;
+      let price = lineHtml(line.unit, line.quantity, line.per);
+      if (refused) price = `<span class="refused">${esc(loc("Shop.Refused"))}</span>`;
+      else if (changed) price = `<s class="was">${copperHtml(lineTotal(line.proposed, line.quantity))}</s> ${price}`;
+      const entry = this.#entry(side, line.id);
+      const max = entry ? this.#max(side, entry) : line.quantity;
+      const key = `basket.${side}.${line.id}`;
+      const quantity = max > 1 && !this.locked ? `<input type="number" class="basket-qty" data-field="${esc(key)}" min="0" max="${max}" step="1" value="${line.quantity}" aria-label="${esc(loc("Shop.Quantity"))}">` : `<span class="quantity">${line.quantity > 1 ? `\xD7${line.quantity}` : ""}</span>`;
+      const remove = this.locked ? "" : `<button type="button" data-action="remove" data-tooltip-text="${esc(loc("Shop.Remove"))}" aria-label="${esc(loc("Shop.Remove"))}"><i class="fa-solid fa-xmark" inert></i></button>`;
+      const tip = changed ? ` data-tooltip-text="${esc(loc("Shop.PriceChanged"))}"` : "";
+      return `<li class="basket-line${refused ? " refused" : ""}${changed ? " changed" : ""}" data-id="${esc(line.id)}" data-side="${side}">
+        <img class="item-img" src="${esc(line.img)}" alt="" inert>
+        <span class="name">${this.#itemName(side, line)}</span>
+        ${quantity}
+        <span class="price"${tip}>${price}</span>
+        ${remove}
+      </li>`;
+    }
+    /** Purchases, discount, sales, and what is paid in the end. */
+    #renderTotals() {
+      const { totals, discount } = this.deal;
+      const rows = [];
+      if (this.deal.buy.length) rows.push(summaryRow(loc("Shop.TotalBuy"), copperHtml(totals.buy)));
+      if (totals.discount) rows.push(summaryRow(loc("Shop.Discount", { percent: discount }), `\u2212${copperHtml(totals.discount)}`, "discount"));
+      if (this.deal.sell.length) rows.push(summaryRow(loc("Shop.TotalSell"), copperHtml(totals.sell)));
+      const net = totals.net;
+      const label2 = !net ? loc("Shop.Even") : loc(net > 0 ? "Shop.YouPay" : "Shop.YouReceive");
+      rows.push(summaryRow(label2, net ? copperHtml(Math.abs(net)) : "", `total ${net > 0 ? "pay" : net < 0 ? "receive" : "even"}`));
+      const actor = this.actor;
+      const short = actor && net > 0 && net > toCopper(coinsOf(actor));
+      const warning = short ? `<p class="shop-short"><i class="fa-solid fa-triangle-exclamation" inert></i> ${esc(loc("Shop.CannotAfford", { actor: this.shop.customer.name }))}</p>` : "";
+      return `<div class="shop-summary">${rows.join("")}</div>${warning}`;
+    }
+    /** Who agreed to the deal as it stands. */
+    #renderAgreement() {
+      return agreementHtml([
+        { yes: this.shop.agreed.customer, name: this.shop.customer.name },
+        { yes: this.shop.agreed.gm, name: this.shop.merchant.name }
+      ]);
+    }
+    #renderFooter() {
+      const button2 = (action, icon, label2, cls, disabled = false) => `<button type="button" data-action="${action}" class="${cls}"${disabled ? " disabled" : ""}><i class="fa-solid ${icon}" inert></i> ${esc(label2)}</button>`;
+      const leave = button2("leave", "fa-door-open", loc("Shop.Leave"), "decline", !!this.shop.executing);
+      if (this.watching) {
+        return `<footer class="shop-footer"><p class="status muted">${esc(loc("Shop.WatchingHint"))}</p>${leave}</footer>`;
+      }
+      if (this.locked) {
+        return `<footer class="shop-footer"><p class="status"><i class="fa-solid fa-spinner fa-spin" inert></i> ${esc(loc("Shop.Booking"))}</p></footer>`;
+      }
+      const empty = !this.deal.buy.length && !this.deal.sell.length;
+      const agree = this.shop.agreed.customer ? button2("withdraw", "fa-rotate-left", loc("Shop.Withdraw"), "withdraw") : button2("agree", "fa-check", loc("Shop.Agree"), "accept", empty);
+      return `<footer class="shop-footer" data-tooltip-text="${esc(loc("Shop.AgreeHintLive"))}">${agree}${leave}</footer>`;
+    }
+    /* ---------------------------------------- */
+    /** Paying takes coins meant for a purpose of the group fund: ask first (true: go on). */
+    async #confirmPayment(net) {
+      const actor = this.actor;
+      if (!actor || net <= 0) return true;
+      const payment = shopPayment(coinsOf(actor), null, net, changeOrder());
+      if (typeof payment === "string") return true;
+      return confirmFundSpend(actor, payment.customer);
+    }
+    static #onAdd(event, target) {
+      if (this.locked) return;
+      const row = target.closest("[data-id]");
+      const side = row?.dataset.side;
+      const entry = this.#entry(side, row?.dataset.id);
+      if (!entry || side === "buy" && entry.unit === null) return;
+      const key = `${side}.${entry.id}`;
+      const input = row.querySelector("input.shop-qty");
+      const wanted = Math.max(1, Math.floor(Number(input?.value ?? 1)) || 1);
+      const delta = Math.min(wanted, this.#max(side, entry) - this.#inBasket(side, entry.id));
+      if (delta < 1) return;
+      this.amounts.delete(key);
+      sendCart(this.shopId, side, entry.id, { delta });
+    }
+    static #onRemove(event, target) {
+      if (this.locked) return;
+      const line = target.closest("[data-id]");
+      if (line) sendCart(this.shopId, line.dataset.side, line.dataset.id, { quantity: 0 });
+    }
+    #onBasketQuantity(input) {
+      const line = input.closest("[data-id]");
+      if (!line || this.locked) return;
+      const quantity = Math.max(0, Math.floor(Number(input.value)) || 0);
+      sendCart(this.shopId, line.dataset.side, line.dataset.id, { quantity });
+    }
+    static async #onAgree(event, target) {
+      if (this.locked || this.shop.agreed.customer) return;
+      const signature = this.deal.signature;
+      target.disabled = true;
+      const go = await this.#confirmPayment(this.deal.totals?.net ?? 0);
+      if (!go || this.ended || this.deal.signature !== signature) {
+        target.disabled = false;
+        return;
+      }
+      sendAgree(this.shopId, true, signature);
+    }
+    static #onWithdraw() {
+      if (!this.locked) sendAgree(this.shopId, false);
+    }
+    /** Open an item's sheet: the merchant's from the GM (read-only), the customer's own directly. */
+    static #onViewItem(event, target) {
+      const row = target.closest("[data-id]");
+      const id = row?.dataset.id;
+      if (!id) return;
+      if (row.dataset.side === "sell") {
+        if (this.shop.customer.uuid) fromUuidSync(`${this.shop.customer.uuid}.Item.${id}`)?.sheet?.render(true);
+      } else if (this.shop.showItems) requestShopItem(this.shopId, id);
+    }
+    static #onLeave() {
+      this.close();
+    }
+  };
+  return ShopAppClass;
+}
+function showShopApp({ shopId, state: state2 }) {
+  if (!state2) return;
+  if (left.has(shopId)) return sendShopCancel(shopId);
+  let app = apps2.get(shopId);
+  if (app) app.update(state2);
+  else {
+    const ShopApp = getShopAppClass();
+    app = new ShopApp(shopId, state2);
+    apps2.set(shopId, app);
+  }
+  app.render({ force: true });
+  return app;
+}
+function closeShopApp({ shopId }) {
+  const app = apps2.get(shopId);
+  if (!app) return;
+  app.ended = true;
+  apps2.delete(shopId);
+  app.close();
+}
+
+// src/feature/shop/stock.ts
+var stockItems = (merchant) => merchant.items.filter((i) => isTradeable(i) && !i.system?.container);
+var own = (merchant, id) => {
+  const item = merchant?.items.get(id);
+  return game.user.isGM && item ? item : null;
+};
+function setStockQuantity(merchant, id, quantity) {
+  const item = own(merchant, id);
+  const n = Math.floor(Number(quantity));
+  if (!item || !Number.isFinite(n) || item.type === "container") return;
+  return item.update({ "system.quantity": Math.max(0, n) }, BYPASS());
+}
+function setUnlimited(merchant, id, unlimited) {
+  const item = own(merchant, id);
+  return item?.update({ [`flags.${MODULE_ID}.shop.unlimited`]: !!unlimited });
+}
+function setPricePer(merchant, id, per) {
+  const item = own(merchant, id);
+  if (!item) return;
+  const n = Math.floor(Number(per));
+  return item.update({ [`flags.${MODULE_ID}.pricePer`]: Number.isFinite(n) && n > 1 ? Math.min(n, MAX_PRICE_PER) : DELETE() });
+}
+function setFixedPrice(merchant, id, gold2) {
+  const item = own(merchant, id);
+  if (!item) return;
+  const text4 = String(gold2 ?? "").trim();
+  const value = Number(text4);
+  const price = text4 && Number.isFinite(value) && value > 0 ? { value: Math.round(value * COPPER.gp) / COPPER.gp, denomination: "gp" } : null;
+  return item.update({ [`flags.${MODULE_ID}.shop.price`]: price ?? DELETE() });
+}
+function setMaxStock(merchant, id, max) {
+  const item = own(merchant, id);
+  if (!item) return;
+  const text4 = String(max ?? "").trim();
+  const n = Math.floor(Number(text4));
+  return item.update({ [`flags.${MODULE_ID}.shop.maxStock`]: text4 && Number.isFinite(n) ? Math.max(0, n) : DELETE() });
+}
+function setOfferDuration(merchant, id, days, hours) {
+  const item = own(merchant, id);
+  if (!item) return;
+  const d = Math.max(0, Math.floor(Number(days)) || 0);
+  const h = Math.max(0, Math.floor(Number(hours)) || 0);
+  const units = calendarUnits();
+  const span = d * units.day + h * units.hour;
+  return item.update({ [`flags.${MODULE_ID}.shop.until`]: span > 0 ? game.time.worldTime + span : DELETE() });
+}
+async function restock(merchant) {
+  if (!game.user.isGM || !merchant) return null;
+  const config = merchantConfig(merchant);
+  const updates = stockItems(merchant).flatMap((item) => {
+    const { maxStock, unlimited } = shopFlags(item);
+    if (maxStock === null || unlimited || item.type === "container" || pieces(item) >= maxStock) return [];
+    return [{ _id: item.id, "system.quantity": maxStock }];
+  });
+  if (updates.length) await merchant.updateEmbeddedDocuments("Item", updates, BYPASS());
+  const funds = !!config.restockFunds && !config.unlimitedFunds;
+  if (funds) await merchant.update(Object.fromEntries(DENOMINATIONS.map((d) => [`system.currency.${d}`, config.restockFunds[d]])));
+  return { items: updates.length, funds };
+}
+function removeStock(merchant, id) {
+  const item = own(merchant, id);
+  if (!item) return;
+  const ids = [item, ...descendants(merchant, item)].map((i) => i.id);
+  return merchant.deleteEmbeddedDocuments("Item", ids, BYPASS());
+}
+async function addStock(merchant, dropData) {
+  if (!game.user.isGM) return null;
+  if (dropData?.type === "Actor") {
+    const actor = await Actor.implementation.fromDropData(dropData);
+    if (!actor || actor.type === "character" || actor === merchant || actor.uuid === merchant.uuid) return null;
+    return addCreatureStock(merchant, actor, dropData.uuid ?? actor.uuid);
+  }
+  if (dropData?.type !== "Item") return null;
+  const item = await Item.implementation.fromDropData(dropData);
+  if (!item || !isTradeable(item) || item.parent === merchant) return null;
+  const owner = item.parent?.documentName === "Actor" ? item.parent : null;
+  const data = owner ? transferData(item, descendants(owner, item), stackQuantity(item)) : [item.toObject()];
+  const [top, ...contents] = remapIds(foundry.utils.deepClone(data));
+  if (!contents.length) {
+    const merged = await mergeIntoStack(merchant, top, BYPASS());
+    if (merged) return merged.item;
+  }
+  const created = await merchant.createEmbeddedDocuments("Item", [top, ...contents], { keepId: true, ...BYPASS() });
+  return created[0] ?? null;
+}
+var storedServices = (merchant) => {
+  const raw = merchant?.flags?.[MODULE_ID]?.services;
+  return Array.isArray(raw) ? foundry.utils.deepClone(raw) : [];
+};
+var saveServices = (merchant, services) => merchant.update({ [`flags.${MODULE_ID}.services`]: services.slice(0, MAX_SERVICES) });
+function addService(merchant, name) {
+  if (!game.user.isGM || !merchant) return;
+  const services = storedServices(merchant);
+  if (services.length >= MAX_SERVICES) return;
+  services.push({ id: foundry.utils.randomID(), name, category: "", price: { value: 0, denomination: "gp" }, img: "", description: "" });
+  return saveServices(merchant, services);
+}
+function updateService(merchant, id, changes) {
+  if (!game.user.isGM || !merchant) return;
+  const services = storedServices(merchant);
+  const service = services.find((s) => s?.id === id);
+  if (!service) return;
+  for (const key of ["name", "category", "description", "img"]) {
+    if (typeof changes[key] === "string") service[key] = changes[key];
+  }
+  if (changes.gold !== void 0) {
+    const value = Number(String(changes.gold ?? "").trim() || 0);
+    service.price = { value: Number.isFinite(value) && value > 0 ? Math.round(value * COPPER.gp) / COPPER.gp : 0, denomination: "gp" };
+  }
+  return saveServices(merchant, services);
+}
+function removeService(merchant, id) {
+  if (!game.user.isGM || !merchant) return;
+  return saveServices(merchant, storedServices(merchant).filter((s) => s?.id !== id));
+}
+
+// src/feature/shop/profiles.ts
+var CAT = {
+  lodging: { de: "Unterkunft", en: "Lodging" },
+  food: { de: "Essen & Trinken", en: "Food & Drink" },
+  travel: { de: "Reisen", en: "Travel" },
+  spells: { de: "Heilung & Zauber", en: "Healing & Spells" },
+  other: { de: "Sonstiges", en: "Other" }
+};
+var svc = (de, en, category, gold2) => ({ name: { de, en }, category, gold: gold2 });
+var PROFILES = [
+  {
+    id: "generalStore",
+    icon: "fa-basket-shopping",
+    img: "icons/environment/settlement/market-stall.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 100 },
+    items: [
+      { ids: "backpack", quantity: 3 },
+      { ids: "bedroll", quantity: 4 },
+      { ids: "blanket", quantity: 4 },
+      { ids: "candle", quantity: 20 },
+      { ids: ["chalk", null], quantity: 10 },
+      { ids: "crowbar", quantity: 2 },
+      { ids: ["hempen-rope-50-ft", "rope"], quantity: 4 },
+      { ids: "tinderbox", quantity: 4 },
+      { ids: "torch", quantity: 20 },
+      { ids: "rations", quantity: 20 },
+      { ids: "waterskin", quantity: 5 },
+      { ids: ["oil-flask", "oil"], quantity: 10 },
+      { ids: "lamp", quantity: 2 },
+      { ids: ["hooded-lantern", "lantern-hooded"], quantity: 2 },
+      { ids: ["mess-kit", null], quantity: 3 },
+      { ids: "pouch", quantity: 5 },
+      { ids: "sack", quantity: 10 },
+      { ids: "shovel", quantity: 2 },
+      { ids: "grappling-hook", quantity: 2 },
+      { ids: ["ladder-10-foot", "ladder"], quantity: 1 },
+      { ids: ["two-person-tent", "tent"], quantity: 2 },
+      { ids: ["travelers-clothes", "clothes-travelers"], quantity: 3 },
+      { ids: "explorers-pack", quantity: 2 },
+      { ids: "dungeoneers-pack", quantity: 2 },
+      { ids: "paper", quantity: 10 },
+      { ids: "parchment", quantity: 10 },
+      { ids: ["ink-bottle", "ink"], quantity: 2 },
+      { ids: "ink-pen", quantity: 5 },
+      { ids: ["soap", null], quantity: 5 },
+      { ids: "caltrops", quantity: 5 },
+      { ids: "healers-kit", quantity: 2 },
+      { ids: "burglars-pack", quantity: 1 },
+      { ids: "priests-pack", quantity: 1 },
+      { ids: "scholars-pack", quantity: 1 },
+      { ids: "diplomats-pack", quantity: 1 },
+      { ids: "entertainers-pack", quantity: 1 },
+      { ids: "climbers-kit", quantity: 2 },
+      { ids: ["bullseye-lantern", "lantern-bullseye"], quantity: 2 },
+      { ids: "hunting-trap", quantity: 2 }
+    ]
+  },
+  {
+    id: "smith",
+    icon: "fa-hammer",
+    img: "icons/environment/settlement/blacksmith.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 500 },
+    items: [
+      { ids: "dagger", quantity: 6 },
+      { ids: "handaxe", quantity: 4 },
+      { ids: "light-hammer", quantity: 3 },
+      { ids: "mace", quantity: 3 },
+      { ids: "spear", quantity: 4 },
+      { ids: "javelin", quantity: 6 },
+      { ids: "sickle", quantity: 2 },
+      { ids: "battleaxe", quantity: 2 },
+      { ids: "longsword", quantity: 3 },
+      { ids: "shortsword", quantity: 3 },
+      { ids: "greatsword", quantity: 1 },
+      { ids: "greataxe", quantity: 1 },
+      { ids: "warhammer", quantity: 2 },
+      { ids: "flail", quantity: 2 },
+      { ids: "morningstar", quantity: 2 },
+      { ids: "halberd", quantity: 1 },
+      { ids: "glaive", quantity: 1 },
+      { ids: "war-pick", quantity: 2 },
+      { ids: "maul", quantity: 1 },
+      { ids: "rapier", quantity: 2 },
+      { ids: "scimitar", quantity: 2 },
+      { ids: "trident", quantity: 1 },
+      { ids: "padded-armor", quantity: 2 },
+      { ids: "leather-armor", quantity: 3 },
+      { ids: "studded-leather-armor", quantity: 2 },
+      { ids: "hide-armor", quantity: 2 },
+      { ids: "chain-shirt", quantity: 2 },
+      { ids: "scale-mail", quantity: 2 },
+      { ids: "breastplate", quantity: 1 },
+      { ids: "half-plate-armor", quantity: 1 },
+      { ids: "ring-mail", quantity: 1 },
+      { ids: "chain-mail", quantity: 2 },
+      { ids: "splint-armor", quantity: 1 },
+      { ids: "plate-armor", quantity: 1 },
+      { ids: "shield", quantity: 4 },
+      { ids: "smiths-tools", quantity: 1 },
+      { ids: "leatherworkers-tools", quantity: 1 },
+      { ids: ["chain-10-feet", "chain"], quantity: 2 },
+      { ids: "manacles", quantity: 2 }
+    ]
+  },
+  {
+    id: "alchemist",
+    icon: "fa-flask",
+    img: "icons/tools/laboratory/alembic-glass-ball-blue.webp",
+    settings: { markup: 10, buyRate: 50, restockGold: 200 },
+    items: [
+      { ids: "potion-of-healing", quantity: 6 },
+      { ids: "potion-of-climbing", quantity: 2 },
+      { ids: ["acid-vial", "acid"], quantity: 4 },
+      { ids: "alchemists-fire", quantity: 4 },
+      { ids: "antitoxin", quantity: 4 },
+      { ids: ["oil-flask", "oil"], quantity: 10 },
+      { ids: "vial", quantity: 10 },
+      { ids: ["glass-bottle", "bottle-glass"], quantity: 5 },
+      { ids: "flask", quantity: 5 },
+      { ids: "perfume", quantity: 3 },
+      { ids: "healers-kit", quantity: 4 },
+      { ids: "herbalism-kit", quantity: 2 },
+      { ids: "alchemists-supplies", quantity: 1 },
+      { ids: ["totem", null], quantity: 2 },
+      { ids: "sprig-of-mistletoe", quantity: 4 },
+      { ids: "yew-wand", quantity: 2 },
+      { ids: "wooden-staff", quantity: 2 },
+      { ids: "pouch", quantity: 6 },
+      { ids: "basket", quantity: 4 }
+    ]
+  },
+  {
+    id: "magicShop",
+    icon: "fa-wand-sparkles",
+    img: "icons/environment/settlement/wizard-castle.webp",
+    settings: { markup: 20, buyRate: 50, restockGold: 1e3 },
+    items: [
+      { ids: "spell-scroll-cantrip", quantity: 4 },
+      { ids: ["spell-scroll-1st-level", "spell-scroll-level-1"], quantity: 3 },
+      { ids: "potion-of-healing", quantity: 4 },
+      { ids: ["potion-of-greater-healing", "greater-potion-of-healing"], quantity: 2 },
+      { ids: "potion-of-climbing", quantity: 2 },
+      { ids: "wand-of-magic-detection", quantity: 1 },
+      { ids: "wand-of-secrets", quantity: 1 },
+      { ids: "component-pouch", quantity: 3 },
+      { ids: "crystal", quantity: 2 },
+      { ids: "orb", quantity: 2 },
+      { ids: "rod", quantity: 2 },
+      { ids: "wand", quantity: 2 },
+      { ids: ["spellbook", null], quantity: 2 },
+      { ids: ["ink-bottle", "ink"], quantity: 2 },
+      { ids: "ink-pen", quantity: 4 },
+      { ids: "parchment", quantity: 10 }
+    ]
+  },
+  {
+    id: "temple",
+    icon: "fa-place-of-worship",
+    img: "icons/environment/settlement/temple-night.webp",
+    settings: { markup: 0, buyRate: 50, buysNothing: true },
+    items: [
+      { ids: ["flask-of-holy-water", "holy-water"], quantity: 6 },
+      { ids: "healers-kit", quantity: 4 },
+      { ids: "potion-of-healing", quantity: 4 },
+      { ids: "amulet", quantity: 3 },
+      { ids: "emblem", quantity: 3 },
+      { ids: "reliquary", quantity: 2 },
+      { ids: "candle", quantity: 20 },
+      { ids: ["block-of-incense", null], quantity: 5 },
+      { ids: ["stick-of-incense", null], quantity: 10 },
+      { ids: ["prayer-book", null], quantity: 2 },
+      { ids: ["vestments", "robe"], quantity: 2 },
+      { ids: "priests-pack", quantity: 2 }
+    ],
+    services: [
+      svc("Zauber wirken: Grad 1", "Spellcasting: level 1", CAT.spells, 10),
+      svc("Zauber wirken: Grad 2", "Spellcasting: level 2", CAT.spells, 40),
+      svc("Zauber wirken: Grad 3", "Spellcasting: level 3", CAT.spells, 90),
+      svc("Zauber wirken: Grad 4", "Spellcasting: level 4", CAT.spells, 160),
+      svc("Zauber wirken: Grad 5", "Spellcasting: level 5", CAT.spells, 250)
+    ]
+  },
+  {
+    id: "inn",
+    icon: "fa-beer-mug-empty",
+    img: "icons/environment/settlement/tavern.webp",
+    settings: { markup: 0, buyRate: 50, buysNothing: true, restockGold: 50 },
+    items: [{ ids: "rations", quantity: 10 }, { ids: "waterskin", quantity: 3 }, { ids: "candle", quantity: 10 }],
+    services: [
+      svc("\xDCbernachtung: elend", "Lodging: squalid", CAT.lodging, 0.07),
+      svc("\xDCbernachtung: \xE4rmlich", "Lodging: poor", CAT.lodging, 0.1),
+      svc("\xDCbernachtung: bescheiden", "Lodging: modest", CAT.lodging, 0.5),
+      svc("\xDCbernachtung: komfortabel", "Lodging: comfortable", CAT.lodging, 0.8),
+      svc("\xDCbernachtung: wohlhabend", "Lodging: wealthy", CAT.lodging, 2),
+      svc("\xDCbernachtung: aristokratisch", "Lodging: aristocratic", CAT.lodging, 4),
+      svc("Essen f\xFCr einen Tag: elend", "Meals for a day: squalid", CAT.food, 0.03),
+      svc("Essen f\xFCr einen Tag: \xE4rmlich", "Meals for a day: poor", CAT.food, 0.06),
+      svc("Essen f\xFCr einen Tag: bescheiden", "Meals for a day: modest", CAT.food, 0.3),
+      svc("Essen f\xFCr einen Tag: komfortabel", "Meals for a day: comfortable", CAT.food, 0.5),
+      svc("Essen f\xFCr einen Tag: wohlhabend", "Meals for a day: wealthy", CAT.food, 0.8),
+      svc("Essen f\xFCr einen Tag: aristokratisch", "Meals for a day: aristocratic", CAT.food, 2),
+      svc("Bier, Krug", "Ale, mug", CAT.food, 0.04),
+      svc("Bier, Gallone", "Ale, gallon", CAT.food, 0.2),
+      svc("Wein, einfacher (Krug)", "Wine, common (pitcher)", CAT.food, 0.2),
+      svc("Wein, edler (Flasche)", "Wine, fine (bottle)", CAT.food, 10),
+      svc("Laib Brot", "Bread, loaf", CAT.food, 0.02),
+      svc("St\xFCck K\xE4se", "Cheese, hunk", CAT.food, 0.1),
+      svc("St\xFCck Fleisch", "Meat, chunk", CAT.food, 0.3),
+      svc("Festmahl (pro Person)", "Banquet (per person)", CAT.food, 10),
+      svc("Stallplatz (pro Tag)", "Stabling (per day)", CAT.travel, 0.5)
+    ]
+  },
+  {
+    id: "fence",
+    icon: "fa-mask",
+    img: "icons/environment/settlement/warehouse-crates.webp",
+    settings: { markup: 25, buyRate: 35, restockGold: 300 },
+    items: [
+      { ids: "thieves-tools", quantity: 2 },
+      { ids: "disguise-kit", quantity: 2 },
+      { ids: "forgery-kit", quantity: 2 },
+      { ids: "poisoners-kit", quantity: 1 },
+      { ids: ["basic-poison", "poison-basic"], quantity: 3 },
+      { ids: "caltrops", quantity: 4 },
+      { ids: "lock", quantity: 2 },
+      { ids: "manacles", quantity: 2 },
+      { ids: ["signet-ring", null], quantity: 2 },
+      { ids: "burglars-pack", quantity: 2 },
+      { ids: "dagger", quantity: 4 },
+      { ids: "hand-crossbow", quantity: 1 },
+      { ids: "crowbar", quantity: 2 },
+      { ids: "grappling-hook", quantity: 2 },
+      { ids: ["silk-rope-50-ft", null], quantity: 2 },
+      { ids: ["hooded-lantern", "lantern-hooded"], quantity: 2 }
+    ]
+  },
+  {
+    id: "stable",
+    icon: "fa-horse",
+    img: "icons/environment/settlement/stables-horses.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 100 },
+    items: [
+      { ids: ["riding-saddle", null], quantity: 2 },
+      { ids: ["pack-saddle", null], quantity: 2 },
+      { ids: ["military-saddle", null], quantity: 1 },
+      { ids: ["bit-and-bridle", null], quantity: 3 },
+      { ids: ["saddlebags", null], quantity: 2 },
+      { ids: ["feed", null], quantity: 30 },
+      { ids: "blanket", quantity: 3 }
+    ],
+    services: [
+      svc("Stallplatz (pro Tag)", "Stabling (per day)", CAT.travel, 0.5),
+      svc("Futter f\xFCr ein Reittier (pro Tag)", "Feed for a mount (per day)", CAT.travel, 0.05),
+      svc("Kutschfahrt in der Stadt", "Coach ride within a city", CAT.travel, 0.01),
+      svc("Kutschfahrt zwischen St\xE4dten (pro Meile)", "Coach ride between towns (per mile)", CAT.travel, 0.03)
+    ],
+    creatures: [
+      { name: "Riding Horse", quantity: 2 },
+      { name: "Draft Horse", quantity: 2 },
+      { name: "Pony", quantity: 2 },
+      { name: "Mule", quantity: 3 },
+      { name: "Warhorse", quantity: 1 }
+    ]
+  },
+  {
+    id: "bowyer",
+    icon: "fa-bullseye",
+    img: "icons/environment/people/archer.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 200 },
+    items: [
+      { ids: "shortbow", quantity: 3 },
+      { ids: "longbow", quantity: 3 },
+      { ids: "light-crossbow", quantity: 2 },
+      { ids: "heavy-crossbow", quantity: 1 },
+      { ids: "hand-crossbow", quantity: 1 },
+      { ids: "sling", quantity: 4 },
+      { ids: "blowgun", quantity: 1 },
+      { ids: "dart", quantity: 20 },
+      { ids: ["arrow", "arrows"], quantity: 200, per: [1, 20] },
+      { ids: ["crossbow-bolt", "bolts"], quantity: 100, per: [1, 20] },
+      { ids: ["sling-bullet", "bullets-sling"], quantity: 100, per: [1, 20] },
+      { ids: ["blowgun-needle", "needles"], quantity: 50, per: [1, 50] },
+      { ids: "quiver", quantity: 4 },
+      { ids: ["crossbow-bolt-case", "case-crossbow-bolt"], quantity: 3 },
+      { ids: "woodcarvers-tools", quantity: 1 }
+    ]
+  },
+  {
+    id: "chandler",
+    icon: "fa-anchor",
+    img: "icons/environment/settlement/ship.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 250 },
+    items: [
+      { ids: ["hempen-rope-50-ft", "rope"], quantity: 8 },
+      { ids: ["silk-rope-50-ft", null], quantity: 2 },
+      { ids: ["chain-10-feet", "chain"], quantity: 3 },
+      { ids: "grappling-hook", quantity: 3 },
+      { ids: "block-and-tackle", quantity: 2 },
+      { ids: "net", quantity: 3 },
+      { ids: ["fishing-tackle", null], quantity: 3 },
+      { ids: "navigators-tools", quantity: 1 },
+      { ids: "spyglass", quantity: 1 },
+      { ids: ["hooded-lantern", "lantern-hooded"], quantity: 3 },
+      { ids: ["oil-flask", "oil"], quantity: 10 },
+      { ids: "barrel", quantity: 4 },
+      { ids: "chest", quantity: 2 },
+      { ids: "sack", quantity: 10 },
+      { ids: "rations", quantity: 30 },
+      { ids: "waterskin", quantity: 6 },
+      { ids: "signal-whistle", quantity: 4 },
+      { ids: "cartographers-tools", quantity: 1 }
+    ],
+    services: [
+      svc("Schiffspassage (pro Meile)", "Ship's passage (per mile)", CAT.travel, 0.1),
+      svc("Wegzoll oder Hafengeb\xFChr", "Road toll or harbor fee", CAT.travel, 0.01),
+      svc("Hilfskraft, ungelernt (pro Tag)", "Hireling, untrained (per day)", CAT.other, 0.2),
+      svc("Hilfskraft, gelernt (pro Tag)", "Hireling, skilled (per day)", CAT.other, 2)
+    ]
+  },
+  {
+    id: "scribe",
+    icon: "fa-feather-pointed",
+    img: "icons/tools/scribal/ink-quill-red.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 150 },
+    items: [
+      { ids: "paper", quantity: 20 },
+      { ids: "parchment", quantity: 20 },
+      { ids: ["ink-bottle", "ink"], quantity: 5 },
+      { ids: "ink-pen", quantity: 10 },
+      { ids: "book", quantity: 3 },
+      { ids: ["spellbook", null], quantity: 2 },
+      { ids: ["map-or-scroll-case", "case-map-or-scroll"], quantity: 4 },
+      { ids: [null, "map"], quantity: 3 },
+      { ids: ["sealing-wax", null], quantity: 5 },
+      { ids: ["hourglass", null], quantity: 1 },
+      { ids: "magnifying-glass", quantity: 1 },
+      { ids: "calligraphers-supplies", quantity: 1 },
+      { ids: "cartographers-tools", quantity: 1 },
+      { ids: "forgery-kit", quantity: 1 },
+      { ids: "scholars-pack", quantity: 2 },
+      { ids: "diplomats-pack", quantity: 1 },
+      { ids: "candle", quantity: 20 }
+    ],
+    services: [
+      svc("Bote (pro Meile)", "Messenger (per mile)", CAT.other, 0.02),
+      svc("Brief schreiben lassen", "Letter writing", CAT.other, 0.1),
+      svc("Abschrift (pro Seite)", "Copy (per page)", CAT.other, 0.2)
+    ]
+  },
+  {
+    id: "tailor",
+    icon: "fa-shirt",
+    img: "icons/equipment/chest/coat-collared-red-gold.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 150 },
+    items: [
+      { ids: ["common-clothes", null], quantity: 6 },
+      { ids: ["travelers-clothes", "clothes-travelers"], quantity: 4 },
+      { ids: ["fine-clothes", "clothes-fine"], quantity: 2 },
+      { ids: ["costume-clothes", "costume"], quantity: 3 },
+      { ids: ["robes", "robe"], quantity: 3 },
+      { ids: ["vestments", null], quantity: 2 },
+      { ids: "blanket", quantity: 5 },
+      { ids: "bedroll", quantity: 3 },
+      { ids: "pouch", quantity: 6 },
+      { ids: "sack", quantity: 6 },
+      { ids: "backpack", quantity: 3 },
+      { ids: "weavers-tools", quantity: 1 },
+      { ids: "leatherworkers-tools", quantity: 1 },
+      { ids: "cobblers-tools", quantity: 1 }
+    ],
+    services: [
+      svc("Kleidung ausbessern", "Mending clothes", CAT.other, 0.1),
+      svc("Ma\xDFanfertigung (Aufpreis)", "Tailoring (surcharge)", CAT.other, 2)
+    ]
+  },
+  {
+    id: "minstrel",
+    icon: "fa-music",
+    img: "icons/tools/instruments/lute-gold-brown.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 200 },
+    items: [
+      { ids: "lute", quantity: 2 },
+      { ids: "lyre", quantity: 2 },
+      { ids: "flute", quantity: 3 },
+      { ids: "pan-flute", quantity: 2 },
+      { ids: "drum", quantity: 2 },
+      { ids: "horn", quantity: 2 },
+      { ids: "shawm", quantity: 2 },
+      { ids: "viol", quantity: 1 },
+      { ids: "dulcimer", quantity: 1 },
+      { ids: "bagpipes", quantity: 1 },
+      { ids: ["dice-set", "dice"], quantity: 6 },
+      { ids: ["playing-cards-set", "playing-cards"], quantity: 6 },
+      { ids: ["chess-set", "dragonchess"], quantity: 2 },
+      { ids: [null, "three-dragon-ante"], quantity: 2 },
+      { ids: "disguise-kit", quantity: 1 },
+      { ids: ["costume-clothes", "costume"], quantity: 3 },
+      { ids: "entertainers-pack", quantity: 2 }
+    ],
+    services: [
+      svc("Auftritt eines Spielmanns (pro Abend)", "Minstrel performance (per evening)", CAT.other, 1),
+      svc("Unterricht (pro Tag)", "Lessons (per day)", CAT.other, 1)
+    ]
+  },
+  {
+    id: "toolmaker",
+    icon: "fa-screwdriver-wrench",
+    img: "icons/environment/settlement/pottery-shop-shed-red.webp",
+    settings: { markup: 0, buyRate: 50, restockGold: 250 },
+    items: [
+      { ids: "smiths-tools", quantity: 1 },
+      { ids: "carpenters-tools", quantity: 2 },
+      { ids: "masons-tools", quantity: 1 },
+      { ids: "tinkers-tools", quantity: 1 },
+      { ids: "leatherworkers-tools", quantity: 1 },
+      { ids: "cobblers-tools", quantity: 1 },
+      { ids: "glassblowers-tools", quantity: 1 },
+      { ids: "potters-tools", quantity: 1 },
+      { ids: "jewelers-tools", quantity: 1 },
+      { ids: "painters-supplies", quantity: 1 },
+      { ids: "brewers-supplies", quantity: 1 },
+      { ids: "cooks-utensils", quantity: 2 },
+      { ids: "woodcarvers-tools", quantity: 2 },
+      { ids: ["hammer", null], quantity: 4 },
+      { ids: ["sledgehammer", null], quantity: 2 },
+      { ids: ["miners-pick", null], quantity: 2 },
+      { ids: "shovel", quantity: 3 },
+      { ids: "crowbar", quantity: 3 },
+      { ids: ["iron-spike", "spikes-iron"], quantity: 30, per: [1, 10] },
+      { ids: ["piton", null], quantity: 20 },
+      { ids: ["chain-10-feet", "chain"], quantity: 3 },
+      { ids: "lock", quantity: 3 },
+      { ids: "manacles", quantity: 2 }
+    ],
+    services: [svc("Reparatur (je nach Aufwand)", "Repairs (depending on the work)", CAT.other, 1)]
+  }
+];
+function profileId(ids, edition) {
+  if (typeof ids === "string") return ids;
+  return edition === "legacy" ? ids[0] : ids[1];
+}
+
+// src/feature/shop/templates.ts
+var MAX_TEMPLATES = 200;
+var PACK_NAME = "pack-and-ledger-templates";
+var PACK_ID = `world.${PACK_NAME}`;
+var cleanSettings = (raw) => {
+  const config = merchantConfig({ flags: { [MODULE_ID]: { merchant: raw ?? {} } } });
+  return {
+    markup: config.markup,
+    buyRate: config.buyRate,
+    valuables: config.valuables,
+    buysNothing: config.buysNothing,
+    unlimitedFunds: config.unlimitedFunds,
+    restockFunds: config.restockFunds
+  };
+};
+var FolderClass = () => globalThis.Folder.implementation;
+var templatePack = () => game.packs?.get(PACK_ID) ?? null;
+async function ensurePack() {
+  const existing = templatePack();
+  if (existing) return existing;
+  const CompendiumCollection = foundry.documents.collections.CompendiumCollection;
+  const pack = await CompendiumCollection.createCompendium({ type: "Item", label: loc("Shop.Templates.PackName"), name: PACK_NAME });
+  await pack?.configure({ ownership: { PLAYER: "NONE", TRUSTED: "NONE", ASSISTANT: "OWNER" } });
+  if (pack) await placeInFolder(pack, { fresh: true });
+  return pack;
+}
+var folders = () => [...templatePack()?.folders ?? []];
+var isTemplateFolder = (folder, all = folders()) => !all.some((f) => f.folder?.id === folder.id);
+function cleanTemplate(id, name, t) {
+  return {
+    id,
+    name: String(name ?? "").slice(0, 100) || "?",
+    source: typeof t?.source === "string" ? t.source.slice(0, 100) : "",
+    settings: cleanSettings(t?.settings),
+    items: (Array.isArray(t?.items) ? t.items : []).filter((i) => Array.isArray(i?.data) && i.data.length).map((i) => ({
+      key: String(i.key ?? foundry.utils.randomID()),
+      name: String(i.name ?? i.data[0]?.name ?? "?"),
+      img: String(i.img ?? i.data[0]?.img ?? ""),
+      quantity: Math.max(0, Math.floor(Number(i.quantity)) || 0),
+      data: i.data,
+      uuid: i.uuid
+    })),
+    services: (Array.isArray(t?.services) ? t.services : []).slice(0, MAX_SERVICES),
+    img: typeof t?.img === "string" ? t.img.trim().slice(0, 500) : "",
+    description: typeof t?.description === "string" ? t.description.trim().slice(0, 4e3) : ""
+  };
+}
+function ownTemplates() {
+  const all = folders();
+  return all.filter((f) => isTemplateFolder(f, all)).slice(0, MAX_TEMPLATES).map((f) => {
+    const stored = f.flags?.[MODULE_ID]?.template ?? {};
+    return cleanTemplate(f.id, f.name, { ...stored, source: f.folder?.name ?? "", items: [] });
+  });
+}
+async function loadTemplate(id) {
+  const pack = templatePack();
+  const folder = pack?.folders.get(id);
+  if (!folder) return null;
+  const header = ownTemplates().find((t) => t.id === id);
+  const ids = (await pack.getIndex()).filter((i) => i.folder === id).map((i) => i._id);
+  const docs = ids.length ? await pack.getDocuments({ _id__in: ids }) : [];
+  const inFolder = new Set(docs.map((d) => d.id));
+  const childrenOf = (parent) => docs.filter((d) => d.system?.container === parent.id).flatMap((d) => [d, ...childrenOf(d)]);
+  const items = docs.filter((d) => !inFolder.has(d.system?.container)).sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name, game.i18n.lang)).map((top) => ({
+    key: top.id,
+    name: top.name,
+    img: top.img ?? "",
+    uuid: top.uuid,
+    quantity: pieces(top),
+    data: [top, ...childrenOf(top)].map((d) => d.toObject())
+  }));
+  return header ? { ...header, items } : null;
+}
+function entryData(entry, folder) {
+  const data = remapIds(foundry.utils.deepClone(entry.data));
+  if (data[0]?.type !== "container") foundry.utils.setProperty(data[0], "system.quantity", entry.quantity);
+  for (const d of data) {
+    d.folder = folder;
+    delete d._stats;
+    delete d.ownership;
+  }
+  return data;
+}
+async function sourceFolder(pack, source) {
+  if (!source) return null;
+  const found = folders().find((f) => !f.folder && f.name === source && !isTemplateFolder(f));
+  if (found) return found;
+  return FolderClass().create({ name: source, type: "Item", sorting: "a" }, { pack: pack.collection });
+}
+async function writeTemplate(t, existingId) {
+  const pack = await ensurePack();
+  if (!pack) return null;
+  const meta = { settings: t.settings, services: t.services, img: t.img ?? "", description: t.description ?? "" };
+  let folder = existingId ? pack.folders.get(existingId) : null;
+  if (folder) {
+    const old = (await pack.getIndex()).filter((i) => i.folder === folder.id).map((i) => i._id);
+    if (old.length) await Item.implementation.deleteDocuments(old, { pack: pack.collection });
+    await folder.update({ name: t.name, [`flags.${MODULE_ID}.template`]: foundry.data.operators.ForcedReplacement.create(meta) });
+  } else {
+    const parent = await sourceFolder(pack, t.source ?? "");
+    folder = await FolderClass().create({
+      name: t.name,
+      type: "Item",
+      folder: parent?.id ?? null,
+      sorting: "m",
+      flags: { [MODULE_ID]: { template: meta } }
+    }, { pack: pack.collection });
+  }
+  if (!folder) return null;
+  const data = t.items.flatMap((entry) => entryData(entry, folder.id));
+  if (data.length) await Item.implementation.createDocuments(data, { pack: pack.collection, keepId: true });
+  return folder;
+}
+async function saveTemplate(merchant, name) {
+  if (!game.user.isGM || !merchant) return null;
+  if (ownTemplates().length >= MAX_TEMPLATES) {
+    ui.notifications.warn(loc("Shop.Templates.TooMany", { count: MAX_TEMPLATES }));
+    return null;
+  }
+  const items = stockItems(merchant).map((item) => {
+    const quantity = pieces(item);
+    const data = transferData(item, descendants(merchant, item), quantity);
+    for (const d of data) withoutOfferEnd(d);
+    return { key: item.id, name: item.name, img: item.img ?? "", quantity, data };
+  });
+  const services = foundry.utils.deepClone(merchant.flags?.[MODULE_ID]?.services ?? []).map(({ id, ...rest }) => rest);
+  const config = merchantConfig(merchant);
+  const template = cleanTemplate(
+    "",
+    name.trim().slice(0, 100) || merchant.name,
+    { settings: merchant.flags?.[MODULE_ID]?.merchant, items, services, img: config.img, description: config.description }
+  );
+  const folder = await writeTemplate(template);
+  return folder ? { ...template, id: folder.id } : null;
+}
+async function renameTemplate(id, name) {
+  const folder = templatePack()?.folders.get(id);
+  if (folder && name.trim()) await folder.update({ name: name.trim().slice(0, 100) });
+}
+async function deleteTemplate(id) {
+  const pack = templatePack();
+  const folder = pack?.folders.get(id);
+  if (!folder) return;
+  const parent = folder.folder;
+  const items = (await pack.getIndex()).filter((i) => i.folder === id).map((i) => i._id);
+  if (items.length) await Item.implementation.deleteDocuments(items, { pack: pack.collection });
+  await folder.delete();
+  if (parent && !folders().some((f) => f.folder?.id === parent.id)) await parent.delete();
+}
+var PACKS = { legacy: "dnd5e.items", modern: "dnd5e.equipment24" };
+var ACTOR_PACKS = { legacy: "dnd5e.monsters", modern: "dnd5e.actors24" };
+var worldEdition = () => game.settings.get("dnd5e", "rulesVersion") === "legacy" ? "legacy" : "modern";
+async function identifiers(packId) {
+  const pack = game.packs.get(packId);
+  const map = /* @__PURE__ */ new Map();
+  if (!pack) return map;
+  const index = await pack.getIndex({ fields: ["system.identifier"] });
+  for (const entry of index) {
+    const id = entry.system?.identifier;
+    if (id && !map.has(id)) map.set(id, entry._id);
+  }
+  return map;
+}
+var hasText = (data) => !!String(data?.system?.description?.value ?? "").replace(/<[^>]*>/g, "").trim();
+async function masteryText(key) {
+  const mastery = CONFIG.DND5E?.weaponMasteries?.[key];
+  if (!mastery) return "";
+  const page = mastery.reference ? await fromUuid(mastery.reference).catch(() => null) : null;
+  const name = String(page?.name || game.i18n.localize(mastery.label ?? key));
+  const rule = String(page?.text?.content ?? "").trim();
+  const lead = `<strong>${foundry.utils.escapeHTML(name)}.</strong>`;
+  if (!rule) return `<p>${lead}</p>`;
+  return /^<p[^>]*>/i.test(rule) ? rule.replace(/^<p([^>]*)>/i, `<p$1>${lead} `) : `<p>${lead} ${rule}</p>`;
+}
+async function weaponText(data) {
+  const plain2 = String(data.name ?? "");
+  const name = `${/^[aeiou]/i.test(plain2) ? "an" : "a"} ${plain2}`;
+  const esc2 = foundry.utils.escapeHTML;
+  const parts = [`<p>Proficiency with ${esc2(name)} allows you to add your proficiency bonus to the attack roll for any attack you make with it.</p>`];
+  const mastery = String(data.system?.mastery ?? "");
+  if (mastery) {
+    const rule = await masteryText(mastery);
+    if (rule) parts.push("<p>This weapon has the following mastery property. To use this property, you must have a feature that lets you use it.</p>", rule);
+  }
+  return parts.join("");
+}
+async function borrowDescriptions(profile, loaded, maps) {
+  const wanted = /* @__PURE__ */ new Map();
+  const borrowed = /* @__PURE__ */ new Set();
+  for (const { order, item, edition } of loaded) {
+    const top = item.data[0];
+    if (hasText(top)) continue;
+    if (edition === "modern" && top.type === "weapon") {
+      const text4 = await weaponText(top);
+      if (text4) {
+        foundry.utils.setProperty(top, "system.description.value", text4);
+        borrowed.add(top);
+        continue;
+      }
+    }
+    const other = edition === "legacy" ? "modern" : "legacy";
+    const identifier = profileId(profile.items[order].ids, other);
+    const docId = identifier ? maps[other]?.get(identifier) : void 0;
+    if (!docId) continue;
+    if (!wanted.has(other)) wanted.set(other, []);
+    wanted.get(other).push({ top, docId });
+  }
+  for (const [edition, list] of wanted) {
+    const pack = game.packs.get(PACKS[edition]);
+    if (!pack) continue;
+    try {
+      const docs = await pack.getDocuments({ _id__in: list.map((l) => l.docId) });
+      for (const { top, docId } of list) {
+        const description = docs.find((d) => d.id === docId)?.system?.description;
+        if (!hasText({ system: { description } })) continue;
+        foundry.utils.setProperty(top, "system.description.value", description.value);
+        borrowed.add(top);
+        if (description.chat && !top.system?.description?.chat) foundry.utils.setProperty(top, "system.description.chat", description.chat);
+      }
+    } catch (err) {
+      logError("Could not load the descriptions for a shop profile", err);
+    }
+  }
+  for (const { item } of loaded) if (borrowed.has(item.data[0])) delete item.uuid;
+}
+async function creatureItems(profile, order) {
+  const items = [];
+  if (!profile.creatures?.length) return items;
+  const indexes = /* @__PURE__ */ new Map();
+  for (const e of order) {
+    try {
+      const pack = game.packs.get(ACTOR_PACKS[e]);
+      indexes.set(e, pack ? Array.from(await pack.getIndex()) : []);
+    } catch (err) {
+      logError("Could not read the actors for a shop profile", err);
+      indexes.set(e, []);
+    }
+  }
+  for (const entry of profile.creatures) {
+    for (const e of order) {
+      const found = indexes.get(e).find((i) => i.name === entry.name);
+      if (!found) continue;
+      const uuid = `Compendium.${ACTOR_PACKS[e]}.Actor.${found._id}`;
+      const data = creatureOfferData(found, uuid);
+      data._id = foundry.utils.randomID();
+      data.system.container = null;
+      foundry.utils.setProperty(data, `flags.${MODULE_ID}.shop.maxStock`, entry.quantity);
+      items.push({ key: `creature.${e}.${found._id}`, name: found.name, img: found.img ?? "", quantity: entry.quantity, data: [data] });
+      break;
+    }
+  }
+  return items;
+}
+async function profileTemplate(profile) {
+  const edition = worldEdition();
+  const order = edition === "legacy" ? ["legacy", "modern"] : ["modern", "legacy"];
+  const maps = Object.fromEntries(await Promise.all(order.map(async (e) => [e, await identifiers(PACKS[e])])));
+  const wanted = new Map(order.map((e) => [e, []]));
+  for (const entry of profile.items) {
+    for (const e of order) {
+      const identifier = profileId(entry.ids, e);
+      const docId = identifier ? maps[e].get(identifier) : void 0;
+      if (docId) {
+        wanted.get(e).push({ entry, docId });
+        break;
+      }
+    }
+  }
+  const loaded = [];
+  for (const e of order) {
+    const list = wanted.get(e);
+    const pack = game.packs.get(PACKS[e]);
+    if (!pack || !list.length) continue;
+    const docs = await pack.getDocuments({ _id__in: list.map((l) => l.docId) });
+    for (const { entry, docId } of list) {
+      const doc = docs.find((d) => d.id === docId);
+      if (!doc) continue;
+      try {
+        const data = await Item.implementation.createWithContents([doc], {});
+        const top = data?.[0];
+        if (!top) continue;
+        const per = entry.per?.[e === "legacy" ? 0 : 1] ?? 1;
+        foundry.utils.setProperty(top, `flags.${MODULE_ID}.shop.maxStock`, entry.quantity);
+        if (per > 1) foundry.utils.setProperty(top, `flags.${MODULE_ID}.pricePer`, per);
+        loaded.push({ order: profile.items.indexOf(entry), edition: e, item: { key: `${e}.${docId}`, name: doc.name, img: doc.img ?? "", quantity: entry.quantity, data, uuid: doc.uuid } });
+      } catch (err) {
+        logError(`Could not load ${doc.name} for a shop profile`, err);
+      }
+    }
+  }
+  await borrowDescriptions(profile, loaded, maps);
+  const items = loaded.sort((a, b) => a.order - b.order).map((l) => l.item);
+  items.push(...await creatureItems(profile, order));
+  const lang = game.i18n.lang === "de" ? "de" : "en";
+  const restock2 = profile.settings.restockGold ? { ...emptyCoins(), gp: profile.settings.restockGold } : null;
+  return {
+    id: profile.id,
+    name: loc(`Shop.Templates.Profiles.${profile.id}`),
+    builtIn: true,
+    img: profile.img,
+    description: loc(`Shop.Templates.ProfileDescriptions.${profile.id}`),
+    settings: {
+      markup: profile.settings.markup,
+      buyRate: profile.settings.buyRate,
+      valuables: [...DEFAULT_VALUABLES],
+      buysNothing: !!profile.settings.buysNothing,
+      unlimitedFunds: false,
+      restockFunds: restock2
+    },
+    items,
+    services: (profile.services ?? []).map((s) => ({
+      name: s.name[lang],
+      category: s.category[lang],
+      price: { value: s.gold, denomination: "gp" },
+      img: "",
+      description: ""
+    }))
+  };
+}
+function withoutOfferEnd(data) {
+  const shop = data?.flags?.[MODULE_ID]?.shop;
+  if (shop && "until" in shop) delete shop.until;
+  return data;
+}
+var MAX_CONTAINER_COPIES = 100;
+async function applyTemplate(merchant, template, choice) {
+  if (!game.user.isGM || !merchant) return null;
+  if (choice.mode === "replace") {
+    const ids = stockItems(merchant).flatMap((item) => [item, ...descendants(merchant, item)]).map((i) => i.id);
+    if (ids.length) await merchant.deleteEmbeddedDocuments("Item", [...new Set(ids)], BYPASS());
+  }
+  if (choice.settings) {
+    const s = template.settings;
+    const path = `flags.${MODULE_ID}.merchant`;
+    await merchant.update({
+      [`${path}.markup`]: s.markup,
+      [`${path}.buyRate`]: s.buyRate,
+      [`${path}.valuables`]: s.valuables,
+      [`${path}.buysNothing`]: s.buysNothing,
+      [`${path}.unlimitedFunds`]: s.unlimitedFunds,
+      [`${path}.restockFunds`]: s.restockFunds ? Object.fromEntries(DENOMINATIONS.map((d) => [d, s.restockFunds[d]])) : null
+    });
+  }
+  if (choice.look) {
+    const path = `flags.${MODULE_ID}.merchant`;
+    const look = {};
+    if (template.img) look[`${path}.img`] = template.img;
+    if (template.description) look[`${path}.description`] = template.description;
+    if (Object.keys(look).length) await merchant.update(look);
+  }
+  let items = 0;
+  for (const entry of template.items) {
+    if (!choice.items.has(entry.key)) continue;
+    const quantity = Math.max(0, Math.floor(Number(choice.items.get(entry.key))) || 0);
+    const copy2 = () => remapIds(foundry.utils.deepClone(entry.data)).map((d) => {
+      delete d.folder;
+      delete d._stats;
+      return withoutOfferEnd(d);
+    });
+    if (entry.data[0]?.type === "container") {
+      const copies = Math.min(quantity, MAX_CONTAINER_COPIES);
+      if (!copies) continue;
+      const all = Array.from({ length: copies }, copy2).flat();
+      await merchant.createEmbeddedDocuments("Item", all, { keepId: true, ...BYPASS() });
+      items += copies;
+      continue;
+    }
+    const data = copy2();
+    const [top, ...contents] = data;
+    foundry.utils.setProperty(top, "system.quantity", quantity);
+    const source = creatureSource(top);
+    if (source) {
+      const have = stockItems(merchant).find((i) => creatureSource(i) === source);
+      if (have) {
+        if (quantity) await have.update({ "system.quantity": (Number(have.system?.quantity) || 0) + quantity }, BYPASS());
+        items++;
+        continue;
+      }
+    }
+    if (!contents.length && quantity && await mergeIntoStack(merchant, top, BYPASS())) {
+      items++;
+      continue;
+    }
+    await merchant.createEmbeddedDocuments("Item", data, { keepId: true, ...BYPASS() });
+    items++;
+  }
+  const chosen = template.services.filter((_, i) => choice.services.has(i)).map((s) => ({ ...foundry.utils.deepClone(s), id: foundry.utils.randomID() }));
+  if (chosen.length || choice.mode === "replace") {
+    const kept = choice.mode === "replace" ? [] : foundry.utils.deepClone(merchant.flags?.[MODULE_ID]?.services ?? []);
+    await merchant.update({ [`flags.${MODULE_ID}.services`]: [...kept, ...chosen].slice(0, MAX_SERVICES) });
+  }
+  return { items, services: chosen.length };
+}
+function hasStock(merchant) {
+  return stockItems(merchant).length > 0 || (merchant.flags?.[MODULE_ID]?.services ?? []).length > 0;
+}
+async function viewTemplateItem(entry) {
+  const doc = entry.uuid ? await fromUuid(entry.uuid).catch(() => null) : null;
+  if (doc) return doc.sheet?.render(true);
+  return viewItemData(entry.data[0]);
+}
+function viewItemData(data) {
+  if (!data) return;
+  const source = foundry.utils.deepClone(data);
+  source.ownership = { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER };
+  const item = new Item.implementation(source);
+  return item.sheet?.render(true);
+}
+function viewActorData(data) {
+  if (!data) return;
+  const source = foundry.utils.deepClone(data);
+  source.ownership = { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.OBSERVER };
+  const actor = new Actor.implementation(source);
+  return actor.sheet?.render(true);
+}
+var EXPORT_FORMAT = "pack-and-ledger.shopTemplates";
+async function exportTemplates() {
+  const templates = [];
+  for (const header of ownTemplates()) {
+    const t = await loadTemplate(header.id);
+    if (t) templates.push({ ...t, items: t.items.map(({ uuid, ...i }) => i) });
+  }
+  return JSON.stringify({ format: EXPORT_FORMAT, version: 1, templates }, null, 1);
+}
+async function importTemplates(content) {
+  if (!game.user.isGM) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.templates) ? parsed.templates : [];
+  const incoming = list.filter((t) => t && typeof t.name === "string" && (Array.isArray(t.items) || Array.isArray(t.services)));
+  if (!incoming.length) return null;
+  const existing = ownTemplates();
+  let count = existing.length;
+  let added = 0, replaced = 0, skipped = 0;
+  for (const raw of incoming) {
+    const template = cleanTemplate("", String(raw.name).slice(0, 100), raw);
+    const same = existing.find((t) => t.name === template.name && (t.source ?? "") === (template.source ?? ""));
+    if (!same && count >= MAX_TEMPLATES) {
+      skipped++;
+      continue;
+    }
+    await writeTemplate(template, same?.id);
+    if (same) replaced++;
+    else {
+      added++;
+      count++;
+    }
+  }
+  return { added, replaced, skipped };
+}
+
+// src/feature/shop/client.ts
+var open = /* @__PURE__ */ new Map();
+function requestShop(merchant, customer) {
+  if (!game.users.activeGM) return showNotification("warn", loc("Shop.NoGM"));
+  forgetLeftShops();
+  return requestActiveGM({ type: "shopOpen", merchantUuid: merchant.uuid, customerUuid: customer.uuid, userId: game.user.id });
+}
+function openShop(merchant, customer = ownTradingActor()) {
+  if (!merchant) return;
+  if (!customer) return showNotification("warn", loc("Shop.NoOwnActor"));
+  return requestShop(merchant, customer);
+}
+function sendCart(shopId, side, id, change2) {
+  return requestActiveGM({ type: "shopCart", shopId, side, id, ...change2, userId: game.user.id });
+}
+function sendAgree(shopId, agree, signature) {
+  return requestActiveGM({ type: "shopAgree", shopId, agree, signature, userId: game.user.id });
+}
+function sendShopCancel(shopId) {
+  open.delete(shopId);
+  return requestActiveGM({ type: "shopCancel", shopId, userId: game.user.id });
+}
+function requestShopItem(shopId, itemId) {
+  return requestActiveGM({ type: "shopItem", shopId, itemId, userId: game.user.id });
+}
+var fromGM = (senderId) => !senderId || !!game.users.get(senderId)?.isGM;
+function onShopState(data, senderId) {
+  if (typeof data?.shopId !== "string" || !fromGM(senderId)) return;
+  open.set(data.shopId, senderId ?? game.users.activeGM?.id ?? null);
+  Hooks.callAll("pack-and-ledger.shopState", { shopId: data.shopId, state: data.state });
+}
+function onShopItemData(data, senderId) {
+  if (typeof data?.shopId !== "string" || !fromGM(senderId) || !data.data) return;
+  if (data.kind === "Actor") viewActorData(data.data);
+  else viewItemData(data.data);
+}
+function onShopClosed(data, senderId) {
+  if (typeof data?.shopId !== "string" || !fromGM(senderId)) return;
+  open.delete(data.shopId);
+  Hooks.callAll("pack-and-ledger.shopClosed", { shopId: data.shopId, reason: data.reason ?? null });
+}
+function onShopHostLeft(user, connected) {
+  if (connected || !user?.isGM) return;
+  for (const [shopId, host] of [...open]) {
+    if (host !== user.id && game.users.activeGM) continue;
+    open.delete(shopId);
+    showNotification("warn", loc("Shop.GMLeft"));
+    Hooks.callAll("pack-and-ledger.shopClosed", { shopId, reason: "disconnected" });
+  }
+}
+
+// src/ui/shop-templates-app.ts
+var apps3 = /* @__PURE__ */ new Map();
+var TemplatesAppClass = null;
+function openShopTemplates(merchant) {
+  if (!game.user.isGM || !merchant) return;
+  let app = apps3.get(merchant.uuid);
+  if (!app) {
+    const App = getTemplatesAppClass();
+    app = new App(merchant);
+    apps3.set(merchant.uuid, app);
+  }
+  app.render({ force: true });
+  return app;
+}
+async function promptName(title, value) {
+  const name = await foundry.applications.api.DialogV2.prompt({
+    window: { title, icon: "fa-solid fa-layer-group" },
+    content: `<div class="form-group"><label>${esc(loc("Shop.Templates.Name"))}</label>
+      <div class="form-fields"><input type="text" name="name" value="${esc(value)}" autofocus></div></div>`,
+    ok: { label: loc("Shop.Templates.Ok"), callback: (event, button2) => button2.form.elements.name.value },
+    rejectClose: false
+  });
+  return typeof name === "string" && name.trim() ? name.trim() : null;
+}
+function getTemplatesAppClass() {
+  if (TemplatesAppClass) return TemplatesAppClass;
+  const { ApplicationV2 } = foundry.applications.api;
+  TemplatesAppClass = class ShopTemplatesApp extends ApplicationV2 {
+    merchant;
+    /** "profile:<id>" or "own:<id>". */
+    selected = null;
+    /** Groups of own templates the GM opened (by source). */
+    openGroups = /* @__PURE__ */ new Set();
+    preview = null;
+    loading = false;
+    busy = false;
+    withSettings = true;
+    /** Take over the template's picture and description. */
+    withLook = true;
+    mode = "add";
+    items = /* @__PURE__ */ new Map();
+    services = /* @__PURE__ */ new Set();
+    constructor(merchant, options = {}) {
+      super({ id: `pack-ledger-shop-templates-${merchant.uuid.replace(/[^\w-]/g, "-")}`, ...options });
+      this.merchant = merchant;
+    }
+    static DEFAULT_OPTIONS = {
+      classes: ["pack-ledger-shop-templates"],
+      window: { icon: "fa-solid fa-layer-group", resizable: true },
+      position: { width: 980, height: 720 },
+      actions: {
+        select: ShopTemplatesApp.#onSelect,
+        save: ShopTemplatesApp.#onSave,
+        rename: ShopTemplatesApp.#onRename,
+        remove: ShopTemplatesApp.#onRemove,
+        viewItem: ShopTemplatesApp.#onViewItem,
+        apply: ShopTemplatesApp.#onApply,
+        importFile: ShopTemplatesApp.#onImport,
+        exportFile: ShopTemplatesApp.#onExport,
+        openPack: ShopTemplatesApp.#onOpenPack
+      }
+    };
+    get title() {
+      return loc("Shop.Templates.Title", { merchant: shopName(this.merchant) });
+    }
+    /* ---------------------------------------- */
+    async _renderHTML() {
+      const root = document.createElement("form");
+      root.className = "pack-ledger-shop-templates-content";
+      root.autocomplete = "off";
+      root.innerHTML = `${this.#renderList()}<section class="tpl-preview" data-scroll="preview">${this.#renderPreview()}</section>`;
+      return root;
+    }
+    _replaceHTML(result, content) {
+      replaceKeepingFocus(content, result);
+    }
+    _onRender(context, options) {
+      super._onRender?.(context, options);
+      const form = this.element.querySelector("form");
+      form?.addEventListener("change", (event) => this.#onChange(event.target));
+      form?.addEventListener("submit", (event) => event.preventDefault());
+      for (const group of this.element.querySelectorAll("details.tpl-group")) {
+        group.addEventListener("toggle", () => {
+          if (group.open) this.openGroups.add(group.dataset.source);
+          else this.openGroups.delete(group.dataset.source);
+        });
+      }
+    }
+    _onClose(options) {
+      super._onClose?.(options);
+      if (apps3.get(this.merchant.uuid) === this) apps3.delete(this.merchant.uuid);
+    }
+    /* ---------------------------------------- */
+    #renderList() {
+      const label2 = (name) => {
+        const m = name.match(/^(.*\S)\s*\(([^()]+)\)$/);
+        return m ? `<span class="name">${esc(m[1])}</span><span class="kind">${esc(m[2])}</span>` : `<span class="name">${esc(name)}</span>`;
+      };
+      const entry = (key, icon, name, extra = "") => `<li class="${this.selected === key ? "active" : ""}">
+          <button type="button" class="tpl-entry" data-action="select" data-key="${esc(key)}" data-tooltip-text="${esc(name)}">
+            <i class="fa-solid ${icon}" inert></i><span class="text">${label2(name)}</span></button>${extra ? `<span class="tpl-actions">${extra}</span>` : ""}
+        </li>`;
+      const profiles = PROFILES.map((p) => entry(`profile:${p.id}`, p.icon, loc(`Shop.Templates.Profiles.${p.id}`))).join("");
+      const ownEntry = (t) => entry(`own:${t.id}`, "fa-bookmark", t.name, `
+          <button type="button" class="icon" data-action="rename" data-id="${esc(t.id)}" data-tooltip-text="${esc(loc("Shop.Templates.Rename"))}"
+            aria-label="${esc(loc("Shop.Templates.Rename"))}"><i class="fa-solid fa-pen" inert></i></button>
+          <button type="button" class="icon" data-action="remove" data-id="${esc(t.id)}" data-tooltip-text="${esc(loc("Shop.Templates.Delete"))}"
+            aria-label="${esc(loc("Shop.Templates.Delete"))}"><i class="fa-solid fa-trash" inert></i></button>`);
+      const templates = ownTemplates().sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
+      const loose = templates.filter((t) => !t.source).map(ownEntry).join("");
+      const sources = [...new Set(templates.map((t) => t.source).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      const groups = sources.map((source) => {
+        const list = templates.filter((t) => t.source === source);
+        const open2 = this.openGroups.has(source) || list.some((t) => this.selected === `own:${t.id}`);
+        return `<details class="tpl-group" data-source="${esc(source)}"${open2 ? " open" : ""}>
+          <summary><i class="fa-solid fa-book" inert></i> ${esc(source)} <span class="count">${list.length}</span></summary>
+          <ul>${list.map(ownEntry).join("")}</ul></details>`;
+      }).join("");
+      const own2 = loose ? `<ul>${loose}</ul>${groups}` : groups;
+      return `<nav class="tpl-list">
+        <div class="pl-bar"><span class="title">${esc(loc("Shop.Templates.ProfilesHeading"))}</span></div>
+        <ul>${profiles}</ul>
+        <div class="pl-bar"><span class="title">${esc(loc("Shop.Templates.OwnHeading"))}</span></div>
+        ${own2 || `<ul><li class="empty">${esc(loc("Shop.Templates.NoOwn"))}</li></ul>`}
+        <button type="button" class="tpl-save" data-action="save"><i class="fa-solid fa-floppy-disk" inert></i> ${esc(loc("Shop.Templates.SaveShop"))}</button>
+        <div class="tpl-files">
+          <button type="button" data-action="importFile" data-tooltip-text="${esc(loc("Shop.Templates.ImportHint"))}">
+            <i class="fa-solid fa-file-import" inert></i> ${esc(loc("Shop.Templates.Import"))}</button>
+          <button type="button" data-action="exportFile"${ownTemplates().length ? "" : " disabled"}>
+            <i class="fa-solid fa-file-export" inert></i> ${esc(loc("Shop.Templates.Export"))}</button>
+        </div>
+        ${templatePack() ? `<button type="button" class="tpl-pack" data-action="openPack" data-tooltip-text="${esc(loc("Shop.Templates.OpenPackHint"))}">
+          <i class="fa-solid fa-book-atlas" inert></i> ${esc(loc("Shop.Templates.OpenPack"))}</button>` : ""}
+      </nav>`;
+    }
+    #renderPreview() {
+      if (this.loading) return `<p class="empty"><i class="fa-solid fa-spinner fa-spin" inert></i> ${esc(loc("Shop.Templates.Loading"))}</p>`;
+      const t = this.preview;
+      if (!t) return `<p class="empty">${esc(loc("Shop.Templates.Choose"))}</p>`;
+      const s = t.settings;
+      const terms = [loc("Shop.Terms", { markup: s.markup, buyRate: s.buyRate })];
+      if (s.buysNothing) terms.push(loc("Shop.BuysNothing"));
+      if (s.unlimitedFunds) terms.push(loc("Merchant.UnlimitedFunds"));
+      else if (s.restockFunds) terms.push(`${loc("Merchant.RestockFunds")}: ${toCopper(s.restockFunds) / COPPER.gp} ${loc("Shop.Templates.Gold")}`);
+      if (s.valuables.length) {
+        const types = CONFIG.DND5E?.lootTypes ?? {};
+        terms.push(`${loc("Merchant.Valuables")}: ${s.valuables.map((v) => game.i18n.localize(types[v]?.label ?? v)).join(", ")}`);
+      }
+      const allItems = t.items.length && t.items.every((i) => this.items.has(i.key));
+      const itemRows = t.items.map((i) => `<tr data-key="${esc(i.key)}">
+          <td class="center"><input type="checkbox" name="tpl-item"${this.items.has(i.key) ? " checked" : ""} aria-label="${esc(i.name)}"></td>
+          <td class="item"><img class="item-img" src="${esc(i.img)}" alt="" inert>
+            <a class="item-link" data-action="viewItem" data-key="${esc(i.key)}" data-tooltip-text="${esc(loc("Shop.ViewItem"))}">${esc(i.name)}</a></td>
+          <td class="num"><input type="number" name="tpl-qty" data-field="tpl.qty.${esc(i.key)}" min="0" step="1"
+            value="${this.items.get(i.key) ?? i.quantity}" aria-label="${esc(loc("Shop.Quantity"))}"></td>
+        </tr>`).join("");
+      const allServices = t.services.length && t.services.every((_, i) => this.services.has(i));
+      const serviceRows = t.services.map((v, i) => `<tr data-index="${i}">
+          <td class="center"><input type="checkbox" name="tpl-service"${this.services.has(i) ? " checked" : ""} aria-label="${esc(v.name)}"></td>
+          <td class="item"><i class="fa-solid fa-bell-concierge" inert></i> ${esc(v.name)}</td>
+          <td>${esc(v.category)}</td>
+          <td class="num">${copperHtml(Math.round((Number(v.price?.value) || 0) * COPPER[v.price?.denomination ?? "gp"] || 0))}</td>
+        </tr>`).join("");
+      const replace = this.mode === "replace";
+      const hasLook = !!(t.img || t.description);
+      const look = hasLook ? `<fieldset class="tpl-terms tpl-look">
+          <label class="check"><input type="checkbox" name="tpl-look"${this.withLook ? " checked" : ""}> ${esc(loc("Shop.Templates.TakeLook"))}</label>
+          <div class="tpl-look-body">${t.img ? `<img src="${esc(t.img)}" alt="" inert>` : ""}
+            <div class="tpl-look-text">${descriptionHtml(t.description ?? "")}</div></div>
+        </fieldset>` : "";
+      return `
+        <h2>${esc(t.name)}</h2>
+        ${look}
+        <fieldset class="tpl-terms">
+          <label class="check"><input type="checkbox" name="tpl-settings"${this.withSettings ? " checked" : ""}> ${esc(loc("Shop.Templates.TakeTerms"))}</label>
+          <p class="hint">${esc(terms.join(" \xB7 "))}</p>
+        </fieldset>
+        ${t.items.length ? `<table class="pl-table"><thead><tr class="pl-bar">
+            <th class="center"><input type="checkbox" name="tpl-all-items"${allItems ? " checked" : ""} aria-label="${esc(loc("Shop.Templates.All"))}"></th>
+            <th>${esc(loc("Shop.Templates.Items", { count: t.items.length }))}</th><th class="num">${esc(loc("Shop.Quantity"))}</th></tr></thead>
+          <tbody>${itemRows}</tbody></table>` : ""}
+        ${t.services.length ? `<table class="pl-table"><thead><tr class="pl-bar">
+            <th class="center"><input type="checkbox" name="tpl-all-services"${allServices ? " checked" : ""} aria-label="${esc(loc("Shop.Templates.All"))}"></th>
+            <th>${esc(loc("Shop.Services"))}</th><th>${esc(loc("Shop.ServiceCategory"))}</th><th class="num">${esc(loc("Shop.Price"))}</th></tr></thead>
+          <tbody>${serviceRows}</tbody></table>` : ""}
+        <footer class="tpl-footer">
+          <label class="check"><input type="radio" name="tpl-mode" value="add"${replace ? "" : " checked"}> ${esc(loc("Shop.Templates.Add"))}</label>
+          <label class="check" data-tooltip-text="${esc(loc("Shop.Templates.ReplaceHint"))}"><input type="radio" name="tpl-mode" value="replace"${replace ? " checked" : ""}> ${esc(loc("Shop.Templates.Replace"))}</label>
+          <button type="button" class="accept" data-action="apply"${this.busy ? " disabled" : ""}><i class="fa-solid fa-check" inert></i> ${esc(loc("Shop.Templates.Apply"))}</button>
+        </footer>`;
+    }
+    /* ---------------------------------------- */
+    /** A choice in the preview changed; only "all" needs the boxes ticked anew. */
+    #onChange(target) {
+      const t = this.preview;
+      if (!t) return;
+      switch (target.name) {
+        case "tpl-settings":
+          this.withSettings = !!target.checked;
+          break;
+        case "tpl-look":
+          this.withLook = !!target.checked;
+          break;
+        case "tpl-mode":
+          this.mode = target.value === "replace" ? "replace" : "add";
+          break;
+        case "tpl-item": {
+          const key = target.closest("tr")?.dataset.key;
+          const item = t.items.find((i) => i.key === key);
+          if (!item) return;
+          if (target.checked) {
+            const typed = String(target.closest("tr").querySelector("input[name=tpl-qty]")?.value ?? "").trim();
+            const n = Math.floor(Number(typed));
+            this.items.set(item.key, typed && Number.isFinite(n) ? Math.max(0, n) : item.quantity);
+          } else this.items.delete(item.key);
+          break;
+        }
+        case "tpl-qty": {
+          const key = target.closest("tr")?.dataset.key;
+          const quantity = Math.max(0, Math.floor(Number(target.value)) || 0);
+          if (key && this.items.has(key)) this.items.set(key, quantity);
+          break;
+        }
+        case "tpl-service": {
+          const index = Number(target.closest("tr")?.dataset.index);
+          if (target.checked) this.services.add(index);
+          else this.services.delete(index);
+          break;
+        }
+        case "tpl-all-items":
+          if (target.checked) for (const i of t.items) this.items.set(i.key, this.items.get(i.key) ?? i.quantity);
+          else this.items.clear();
+          this.render();
+          break;
+        case "tpl-all-services":
+          if (target.checked) t.services.forEach((_, i) => this.services.add(i));
+          else this.services.clear();
+          this.render();
+          break;
+      }
+    }
+    /** Show a template: everything chosen, the pieces as the template has them. */
+    async #show(key) {
+      this.selected = key;
+      this.preview = null;
+      this.loading = true;
+      this.render();
+      try {
+        const [kind, id] = key.split(":");
+        if (kind === "profile") {
+          const profile = PROFILES.find((p) => p.id === id);
+          this.preview = profile ? await profileTemplate(profile) : null;
+        } else this.preview = await loadTemplate(id);
+      } catch (err) {
+        logError("Could not load the shop template", err);
+        ui.notifications.error(loc("Shop.Templates.LoadFailed"));
+      }
+      if (this.selected !== key) return;
+      this.loading = false;
+      this.items = new Map((this.preview?.items ?? []).map((i) => [i.key, i.quantity]));
+      this.services = new Set((this.preview?.services ?? []).map((_, i) => i));
+      this.withSettings = true;
+      this.withLook = true;
+      this.mode = "add";
+      if (this.rendered) this.render();
+    }
+    static #onViewItem(event, target) {
+      const entry = this.preview?.items.find((i) => i.key === target.dataset.key);
+      if (entry) viewTemplateItem(entry);
+    }
+    static #onSelect(event, target) {
+      if (target.dataset.key) this.#show(target.dataset.key);
+    }
+    static async #onSave() {
+      const name = await promptName(loc("Shop.Templates.SaveShop"), shopName(this.merchant));
+      if (!name) return;
+      const template = await saveTemplate(this.merchant, name);
+      if (!template) return;
+      ui.notifications.info(loc("Shop.Templates.Saved", { name: template.name }));
+      this.#show(`own:${template.id}`);
+    }
+    static async #onRename(event, target) {
+      const template = ownTemplates().find((t) => t.id === target.dataset.id);
+      if (!template) return;
+      const name = await promptName(loc("Shop.Templates.Rename"), template.name);
+      if (!name) return;
+      await renameTemplate(template.id, name);
+      if (this.selected === `own:${template.id}` && this.preview) this.preview.name = name;
+      this.render();
+    }
+    static async #onRemove(event, target) {
+      const template = ownTemplates().find((t) => t.id === target.dataset.id);
+      if (!template) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Shop.Templates.Delete"), icon: "fa-solid fa-trash" },
+        content: `<p>${esc(loc("Shop.Templates.DeleteConfirm", { name: template.name }))}</p>`,
+        rejectClose: false
+      });
+      if (!yes) return;
+      await deleteTemplate(template.id);
+      if (this.selected === `own:${template.id}`) {
+        this.selected = null;
+        this.preview = null;
+      }
+      this.render();
+    }
+    /** Pick a file of templates (an export of this module) and take its templates into the own ones. */
+    static #onImport() {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const done = await importTemplates(await file.text());
+          if (!done) return void ui.notifications.warn(loc("Shop.Templates.ImportEmpty"));
+          ui.notifications.info(loc("Shop.Templates.Imported", done));
+          if (done.skipped) ui.notifications.warn(loc("Shop.Templates.ImportSkipped", { count: done.skipped }));
+        } catch (err) {
+          logError("Could not import shop templates", err);
+          ui.notifications.error(loc("Shop.Templates.ImportFailed"));
+        }
+        if (this.rendered) this.render();
+      });
+      input.click();
+    }
+    static async #onExport() {
+      foundry.utils.saveDataToFile(await exportTemplates(), "application/json", "pack-and-ledger-shop-templates.json");
+    }
+    /** Open the compendium of the own templates (to look at and edit their items). */
+    static #onOpenPack() {
+      templatePack()?.render(true);
+    }
+    static async #onApply() {
+      const t = this.preview;
+      if (!t || this.busy) return;
+      const look = this.withLook && !!(t.img || t.description);
+      if (!this.items.size && !this.services.size && !this.withSettings && !look) return void ui.notifications.warn(loc("Shop.Templates.NothingChosen"));
+      if (this.mode === "replace" && hasStock(this.merchant)) {
+        const yes = await foundry.applications.api.DialogV2.confirm({
+          window: { title: loc("Shop.Templates.Replace"), icon: "fa-solid fa-triangle-exclamation" },
+          content: `<p>${esc(loc("Shop.Templates.ReplaceConfirm", { merchant: shopName(this.merchant) }))}</p>`,
+          rejectClose: false
+        });
+        if (!yes) return;
+      }
+      this.busy = true;
+      this.render();
+      try {
+        const done = await applyTemplate(this.merchant, t, { settings: this.withSettings, look, mode: this.mode, items: this.items, services: this.services });
+        if (done) ui.notifications.info(loc("Shop.Templates.Applied", { name: t.name, items: done.items, services: done.services }));
+      } catch (err) {
+        logError("Could not apply the shop template", err);
+        ui.notifications.error(loc("Shop.Templates.ApplyFailed"));
+      }
+      this.busy = false;
+      if (this.rendered) this.render();
+    }
+  };
+  return TemplatesAppClass;
+}
+
+// src/ui/merchant-config-app.ts
+var TABS2 = [
+  { id: "general", icon: "fa-store", label: "Merchant.TabGeneral", hint: "Merchant.TabGeneralHint" },
+  { id: "prices", icon: "fa-tags", label: "Merchant.TabPrices", hint: "Merchant.TabPricesHint" },
+  { id: "money", icon: "fa-coins", label: "Merchant.TabMoney", hint: "Merchant.TabMoneyHint" }
+];
+var MerchantAppClass = null;
+var instances = /* @__PURE__ */ new Map();
+function openMerchantConfigApp(actor) {
+  let app = instances.get(actor.uuid);
+  if (!app) {
+    const App = getMerchantAppClass();
+    app = new App({ actor });
+    instances.set(actor.uuid, app);
+  }
+  app.render({ force: true });
+  return app;
+}
+var pad3 = (n) => String(n).padStart(2, "0");
+function getMerchantAppClass() {
+  if (MerchantAppClass) return MerchantAppClass;
+  const { ApplicationV2 } = foundry.applications.api;
+  MerchantAppClass = class PackLedgerMerchantApp extends ApplicationV2 {
+    static DEFAULT_OPTIONS = {
+      // Laid out like the module's settings window (its classes give the look).
+      classes: ["pack-ledger-settings", "pack-ledger-merchant"],
+      window: { icon: "fa-solid fa-store", resizable: true },
+      position: { width: 760, height: 640 },
+      actions: {
+        save: PackLedgerMerchantApp.#onSave,
+        templates: PackLedgerMerchantApp.#onTemplates,
+        restock: PackLedgerMerchantApp.#onRestock,
+        switchTab: PackLedgerMerchantApp.#onTab,
+        removeTag: PackLedgerMerchantApp.#onRemoveTag,
+        pickImage: PackLedgerMerchantApp.#onPickImage
+      }
+    };
+    actor;
+    tab = "general";
+    constructor(options = {}) {
+      super({ ...options, id: `pack-ledger-merchant-${options.actor.uuid.replace(/[^\w-]/g, "-")}` });
+      this.actor = options.actor;
+    }
+    get title() {
+      return loc("Merchant.Title", { name: this.actor.name });
+    }
+    async _renderHTML() {
+      const c = merchantConfig(this.actor);
+      const root = document.createElement("div");
+      root.className = "pack-ledger-settings-layout";
+      const nav = TABS2.map((t) => `<button type="button" class="pack-ledger-settings-tab${t.id === this.tab ? " active" : ""}" data-action="switchTab" data-tab="${t.id}">
+          <i class="fa-solid ${t.icon} fa-fw" inert></i><span>${esc(loc(t.label))}</span></button>`).join("");
+      root.innerHTML = `
+        <nav class="pack-ledger-settings-nav" aria-label="${esc(this.title)}">${nav}</nav>
+        <form class="pack-ledger-settings-body pack-ledger-merchant-form" autocomplete="off">
+          ${this.#section("general", this.#renderGeneral(c))}
+          ${this.#section("prices", this.#renderPrices(c))}
+          ${this.#section("money", this.#renderMoney(c))}
+        </form>
+        <footer class="pack-ledger-settings-footer">
+          <button type="button" data-action="templates"><i class="fa-solid fa-layer-group" inert></i> ${esc(loc("Shop.Templates.Button"))}</button>
+          <button type="button" data-action="restock" data-tooltip-text="${esc(loc("Shop.RestockHint"))}"><i class="fa-solid fa-rotate" inert></i> ${esc(loc("Shop.Restock"))}</button>
+          <button type="button" class="pack-ledger-settings-save" data-action="save"><i class="fa-solid fa-floppy-disk" inert></i> ${esc(loc("Merchant.Save"))}</button>
+        </footer>`;
+      return root;
+    }
+    _replaceHTML(result, content) {
+      content.replaceChildren(result);
+    }
+    _onRender(context, options) {
+      super._onRender?.(context, options);
+      for (const select2 of this.element.querySelectorAll("select[data-picker]")) {
+        select2.addEventListener("change", (event) => this.#pick(event.currentTarget));
+      }
+    }
+    /**
+     * A choice of several values: the chosen ones as tags (each with a button to take it off again, and a hidden field
+     * named `name` that carries it into the save), the others in a dropdown that adds one more.
+     */
+    #picker(name, options, chosen, addLabel) {
+      const chips = options.filter((o) => chosen.has(o.value)).map((o) => this.#chip(name, o)).join("");
+      const choices = options.map((o) => `<option value="${esc(o.value)}"${chosen.has(o.value) ? " hidden disabled" : ""}>${esc(o.label)}</option>`).join("");
+      return `<div class="tag-picker" data-name="${esc(name)}">
+          <div class="tag-chips">${chips}</div>
+          <select data-picker="${esc(name)}" aria-label="${esc(addLabel)}"><option value="">${esc(addLabel)}</option>${choices}</select>
+        </div>`;
+    }
+    #chip(name, option) {
+      return `<span class="tag-chip" data-value="${esc(option.value)}">${esc(option.label)}
+        <input type="hidden" name="${esc(name)}" value="${esc(option.value)}">
+        <button type="button" data-action="removeTag" data-tooltip-text="${esc(loc("Merchant.RemoveTag"))}"
+          aria-label="${esc(loc("Merchant.RemoveTag"))}"><i class="fa-solid fa-xmark" inert></i></button></span>`;
+    }
+    /** A value picked in the dropdown becomes a tag (in the dropdown's order) and leaves the dropdown. */
+    #pick(select2) {
+      const value = select2.value;
+      select2.value = "";
+      const picker = select2.closest(".tag-picker");
+      const chips = picker?.querySelector(".tag-chips");
+      const option = [...select2.options].find((o) => o.value === value);
+      if (!value || !picker || !chips || !option || chips.querySelector(`[data-value="${CSS.escape(value)}"]`)) return;
+      chips.insertAdjacentHTML("beforeend", this.#chip(picker.dataset.name, { value, label: option.textContent ?? value }));
+      const order = [...select2.options].map((o) => o.value);
+      const rank = (el) => order.indexOf(el.dataset.value ?? "");
+      for (const chip of [...chips.children].sort((a, b) => rank(a) - rank(b))) chips.append(chip);
+      this.#syncPicker(picker);
+    }
+    /** The dropdown offers only what is not chosen yet. */
+    #syncPicker(picker) {
+      const chosen = new Set([...picker.querySelectorAll(".tag-chip")].map((c) => c.dataset.value));
+      for (const option of picker.querySelectorAll("select option")) {
+        if (option.value) option.hidden = option.disabled = chosen.has(option.value);
+      }
+    }
+    async close(options) {
+      instances.delete(this.actor.uuid);
+      return super.close(options);
+    }
+    /** A tab: its header (icon, name, what it is about) and its cards. */
+    #section(id, body) {
+      const tab = TABS2.find((t) => t.id === id);
+      return `<section class="pack-ledger-settings-panel${id === this.tab ? " active" : ""}" data-tab="${id}">
+          <header class="pack-ledger-settings-header">
+            <i class="fa-solid ${tab.icon}" inert></i>
+            <div><h2>${esc(loc(tab.label))}</h2><p>${esc(loc(tab.hint))}</p></div>
+          </header>
+          ${body}
+        </section>`;
+    }
+    /** A card of rows, with its title (and a hint under it). */
+    #card(title, rows, hint = "") {
+      return `<div class="pack-ledger-settings-card"><h3>${esc(title)}</h3>${hint ? `<p class="card-hint">${esc(hint)}</p>` : ""}${rows}</div>`;
+    }
+    /**
+     * A row: the name with its hint on the left, the field on the right. A wide row (text, a list of tags, coins) puts
+     * the field below, across the whole card.
+     */
+    #row(label2, field, hint = "", wide = false) {
+      return `<div class="pack-ledger-settings-row${wide ? " wide" : ""}">
+          <div class="label"><label>${esc(label2)}</label>${hint ? `<p class="hint">${esc(hint)}</p>` : ""}</div>
+          <div class="control">${field}</div>
+        </div>`;
+    }
+    /** A switch, as in the settings window. */
+    #check(name, checked) {
+      return `<label class="pack-ledger-switch"><input type="checkbox" name="${name}"${checked ? " checked" : ""}>
+          <span class="track" inert><span class="thumb"></span></span></label>`;
+    }
+    #time(name, minutes) {
+      return `<span class="time"><input type="number" name="${name}H" min="0" max="23" step="1" value="${Math.floor(minutes / 60)}" aria-label="${esc(loc("Merchant.Hour"))}">
+        <span>:</span>
+        <input type="number" name="${name}M" min="0" max="59" step="1" value="${pad3(minutes % 60)}" aria-label="${esc(loc("Merchant.Minute"))}"></span>`;
+    }
+    #renderGeneral(c) {
+      const modes = ["open", "auto", "closed"].map((m) => `<option value="${m}"${c.hours.mode === m ? " selected" : ""}>${esc(loc(`Merchant.Hours.${m}`))}</option>`).join("");
+      const weekdays = calendarWeekdays();
+      const days = weekdays.length ? this.#picker(
+        "closedDay",
+        weekdays.map((d) => ({ value: String(d.index), label: d.name })),
+        new Set(c.hours.closedDays.map(String)),
+        loc("Merchant.AddDay")
+      ) : `<span class="hint">${esc(loc("Merchant.NoWeekdays"))}</span>`;
+      const image = `<span class="with-button"><input type="text" name="img" value="${esc(c.img)}" placeholder="${esc(this.actor.img ?? "")}">
+          <button type="button" class="icon" data-action="pickImage" data-tooltip-text="${esc(loc("Merchant.PickImage"))}"
+            aria-label="${esc(loc("Merchant.PickImage"))}"><i class="fa-solid fa-file-import" inert></i></button></span>`;
+      return `
+        ${this.#card(loc("Merchant.Shop"), [
+        this.#row(loc("Merchant.Enabled"), this.#check("enabled", c.enabled)),
+        this.#row(loc("Merchant.ShowItems"), this.#check("showItems", c.showItems), loc("Merchant.ShowItemsHint")),
+        this.#row(
+          loc("Merchant.Name"),
+          `<input type="text" name="name" value="${esc(c.name)}" placeholder="${esc(this.actor.name)}">`,
+          loc("Merchant.NameHint"),
+          true
+        ),
+        this.#row(loc("Merchant.Image"), image, loc("Merchant.ImageHint"), true),
+        this.#row(
+          loc("Merchant.Description"),
+          `<textarea name="description" rows="5">${esc(c.description)}</textarea>`,
+          loc("Merchant.DescriptionHint"),
+          true
+        ),
+        this.#row(loc("Merchant.GMDescription"), this.#check("gmDescription", c.gmDescription), loc("Merchant.GMDescriptionHint"))
+      ].join(""))}
+        ${this.#card(loc("Merchant.OpeningHours"), [
+        this.#row(loc("Merchant.Hours.Mode"), `<select name="hoursMode">${modes}</select>`),
+        this.#row(loc("Merchant.From"), this.#time("from", c.hours.from)),
+        this.#row(loc("Merchant.To"), this.#time("to", c.hours.to)),
+        this.#row(loc("Merchant.ClosedDays"), days, "", true)
+      ].join(""), loc("Merchant.OpeningHoursHint"))}`;
+    }
+    #renderPrices(c) {
+      const types = Object.entries(CONFIG.DND5E?.lootTypes ?? {}).map(([key, t]) => ({ value: key, label: game.i18n.localize(t.label ?? key) }));
+      const valuables = this.#picker("valuable", types, new Set(c.valuables), loc("Merchant.AddValuable"));
+      const percent = (name, value, min, max) => `<span class="unit"><input type="number" name="${name}"
+          min="${min}"${max !== void 0 ? ` max="${max}"` : ""} step="any" value="${value}"> %</span>`;
+      return this.#card(loc("Merchant.Prices"), [
+        this.#row(loc("Merchant.Markup"), percent("markup", c.markup, -100), loc("Merchant.MarkupHint")),
+        this.#row(loc("Merchant.BuyRate"), percent("buyRate", c.buyRate, 0, 1e3), loc("Merchant.BuyRateHint")),
+        this.#row(loc("Merchant.Valuables"), valuables, loc("Merchant.ValuablesHint"), true)
+      ].join(""));
+    }
+    #renderMoney(c) {
+      const coins = DENOMINATIONS.map((d) => `<label class="coin">${denominationHtml(d)}
+        <input type="number" name="restock-${d}" min="0" step="1" value="${c.restockFunds?.[d] || ""}" placeholder="0"></label>`).join("");
+      return this.#card(loc("Merchant.MoneyStock"), [
+        this.#row(loc("Merchant.BuysNothing"), this.#check("buysNothing", c.buysNothing), loc("Merchant.BuysNothingHint")),
+        this.#row(loc("Merchant.UnlimitedFunds"), this.#check("unlimitedFunds", c.unlimitedFunds), loc("Merchant.UnlimitedFundsHint")),
+        this.#row(loc("Merchant.RestockFunds"), `<div class="coins">${coins}</div>`, loc("Merchant.RestockFundsHint"), true)
+      ].join(""));
+    }
+    /** The settings as typed, cleaned like the stored ones. */
+    #readConfig() {
+      const form = this.element.querySelector("form");
+      const field = (name) => form.elements.namedItem(name);
+      const values = (name) => [...form.querySelectorAll(`input[name="${name}"]`)].map((i) => i.value);
+      const minutes = (name) => (Math.floor(Number(field(`${name}H`).value)) || 0) * 60 + (Math.floor(Number(field(`${name}M`).value)) || 0);
+      return merchantConfig({ flags: { [MODULE_ID]: { merchant: {
+        enabled: field("enabled").checked,
+        name: field("name").value,
+        img: field("img").value,
+        description: form.elements.namedItem("description").value,
+        markup: field("markup").value,
+        buyRate: field("buyRate").value,
+        unlimitedFunds: field("unlimitedFunds").checked,
+        buysNothing: field("buysNothing").checked,
+        showItems: field("showItems").checked,
+        gmDescription: field("gmDescription").checked,
+        valuables: values("valuable"),
+        hours: {
+          mode: field("hoursMode").value,
+          from: minutes("from"),
+          to: minutes("to"),
+          closedDays: values("closedDay").map(Number)
+        },
+        restockFunds: Object.fromEntries(DENOMINATIONS.map((d) => [d, field(`restock-${d}`).value]))
+      } } } });
+    }
+    static #onRemoveTag(event, target) {
+      const picker = target.closest(".tag-picker");
+      target.closest(".tag-chip")?.remove();
+      if (picker) this.#syncPicker(picker);
+    }
+    static #onTab(event, target) {
+      this.tab = target.dataset.tab;
+      for (const el of this.element.querySelectorAll("[data-tab]")) el.classList.toggle("active", el.dataset.tab === this.tab);
+    }
+    static #onPickImage() {
+      const input = this.element.querySelector("input[name=img]");
+      const FilePicker = foundry.applications.apps.FilePicker.implementation;
+      new FilePicker({ type: "image", current: input.value, callback: (path) => {
+        input.value = path;
+      } }).render(true);
+    }
+    static async #onSave() {
+      try {
+        await this.actor.update({ [`flags.${MODULE_ID}.merchant`]: this.#readConfig() });
+        ui.notifications.info(loc("Merchant.Saved"));
+        this.render({ force: true });
+      } catch (error) {
+        logError("merchant setup", error);
+        ui.notifications.error(loc("Merchant.SaveFailed"));
+      }
+    }
+    static #onTemplates() {
+      openShopTemplates(this.actor);
+    }
+    static async #onRestock() {
+      try {
+        const done = await restock(this.actor);
+        if (!done) return;
+        if (!done.items && !done.funds) ui.notifications.info(loc("Shop.RestockNothing"));
+        else ui.notifications.info(loc("Shop.Restocked", { count: done.items }) + (done.funds ? ` ${loc("Shop.RestockedFunds")}` : ""));
+      } catch (err) {
+        logError("Could not restock the shop", err);
+      }
+    }
+  };
+  return MerchantAppClass;
+}
+
+// src/ui/shop-gm-app.ts
+var apps4 = /* @__PURE__ */ new Map();
+var GMAppClass = null;
+var itemUuid = (actorUuid, id) => `${actorUuid}.Item.${id}`;
+function typedUnit(value, per = 1) {
+  if (!String(value ?? "").trim()) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, n * COPPER.gp / Math.max(1, per)) : null;
+}
+var gold = (copper, per = 1) => copper === null || copper === void 0 ? "" : String(Number((copper * per / COPPER.gp).toFixed(6)));
+var perLabel = (per) => per > 1 ? ` <span class="per">${esc(loc("Shop.PerCount", { count: per.toLocaleString(game.i18n.lang) }))}</span>` : "";
+function getGMAppClass() {
+  if (GMAppClass) return GMAppClass;
+  const { ApplicationV2 } = foundry.applications.api;
+  GMAppClass = class ShopGMApp extends ApplicationV2 {
+    merchant;
+    busy = /* @__PURE__ */ new Set();
+    /** Stock rows whose edit mode (pieces per price) is open. */
+    editing = /* @__PURE__ */ new Set();
+    /** What the GM searches for in the stock. */
+    search = "";
+    constructor(merchant, options = {}) {
+      super({ id: `pack-ledger-shop-gm-${merchant.uuid.replace(/[^\w-]/g, "-")}`, ...options });
+      this.merchant = merchant;
+    }
+    static DEFAULT_OPTIONS = {
+      classes: ["pack-ledger-shop-review", "pack-ledger-shop-gm"],
+      window: {
+        icon: "fa-solid fa-store",
+        resizable: true,
+        controls: [
+          { icon: "fa-solid fa-id-card", label: "PACK_LEDGER.Shop.OpenSheet", action: "sheet" }
+        ]
+      },
+      position: { width: 1260, height: 820 },
+      actions: {
+        agree: ShopGMApp.#onAgree,
+        withdraw: ShopGMApp.#onWithdraw,
+        reject: ShopGMApp.#onReject,
+        remove: ShopGMApp.#onRemove,
+        removeStock: ShopGMApp.#onRemoveStock,
+        addService: ShopGMApp.#onAddService,
+        removeService: ShopGMApp.#onRemoveService,
+        editService: ShopGMApp.#onEditService,
+        pickServiceImage: ShopGMApp.#onPickServiceImage,
+        editStock: ShopGMApp.#onEditStock,
+        view: ShopGMApp.#onView,
+        setup: ShopGMApp.#onSetup,
+        sheet: ShopGMApp.#onSheet
+      }
+    };
+    get title() {
+      return loc("Shop.GMTitle", { merchant: merchantConfig(this.merchant).name || this.merchant.name });
+    }
+    /* ---------------------------------------- */
+    async _renderHTML() {
+      const root = document.createElement("form");
+      root.className = "pack-ledger-shop-gm-content";
+      root.autocomplete = "off";
+      const shops = openShops(this.merchant.uuid);
+      root.innerHTML = `${this.#renderHead()}
+        <div class="gm-body">
+          ${this.#renderStock()}
+          <section class="gm-customers">
+            <h3><i class="fa-solid fa-users" inert></i> ${esc(loc("Shop.Customers", { count: shops.length }))}</h3>
+            <div class="gm-sessions" data-scroll="sessions">
+              ${shops.length ? shops.map((v) => this.#renderSession(v)).join("") : `<p class="empty">${esc(loc("Shop.NoCustomers"))}</p>`}
+            </div>
+          </section>
+        </div>`;
+      return root;
+    }
+    _replaceHTML(result, content) {
+      replaceKeepingFocus(content, result);
+    }
+    _onRender(context, options) {
+      super._onRender?.(context, options);
+      if (this.window?.title instanceof HTMLElement) this.window.title.textContent = this.title;
+      const form = this.element.querySelector("form");
+      form?.addEventListener("change", (event) => this.#onChange(event.target));
+      form?.addEventListener("submit", (event) => event.preventDefault());
+      const stock = this.element.querySelector(".gm-stock");
+      stock?.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        stock.classList.add("drop-target");
+      });
+      stock?.addEventListener("dragleave", (event) => {
+        if (!stock.contains(event.relatedTarget)) stock.classList.remove("drop-target");
+      });
+      stock?.addEventListener("drop", (event) => this.#onDrop(event));
+      this.element.querySelector(".gm-stock input.shop-search")?.addEventListener("input", (event) => {
+        this.search = event.currentTarget.value;
+        this.#applySearch();
+      });
+      this.#applySearch();
+      this.element.querySelector(".shop-head img.portrait")?.addEventListener("dblclick", () => {
+        const config = merchantConfig(this.merchant);
+        showPicture(config.img || this.merchant.img, config.name || this.merchant.name);
+      });
+    }
+    /** Only the stock items whose name holds the search show (with their edit row); a group with none of them hides. */
+    #applySearch() {
+      const term = this.search.trim().toLocaleLowerCase(game.i18n.lang);
+      for (const row of this.element.querySelectorAll(".gm-stock tr.stock-row")) {
+        row.hidden = !!term && !String(row.dataset.name ?? "").includes(term);
+        const next = row.nextElementSibling;
+        if (next?.classList.contains("edit-row")) next.hidden = row.hidden;
+      }
+      for (const group of this.element.querySelectorAll(".gm-stock tbody")) {
+        group.hidden = !!term && ![...group.querySelectorAll("tr.stock-row")].some((row) => !row.hidden);
+      }
+    }
+    _onClose(options) {
+      super._onClose?.(options);
+      if (apps4.get(this.merchant.uuid) === this) apps4.delete(this.merchant.uuid);
+    }
+    /* ---------------------------------------- */
+    #renderHead() {
+      const m = this.merchant;
+      const config = merchantConfig(m);
+      const funds = config.unlimitedFunds ? esc(loc("Shop.UnlimitedFunds", { merchant: m.name })) : `${esc(loc("Shop.Purse", { actor: m.name }))} ${coinsHtml(coinsOf(m), "\u2014")}`;
+      let status;
+      if (!config.enabled) status = `<span class="off"><i class="fa-solid fa-triangle-exclamation" inert></i> ${esc(loc("Shop.NotOpen"))}</span>`;
+      else {
+        const open2 = shopOpenNow(m);
+        const hours = hoursText(config.hours);
+        const label2 = loc(open2 ? "Shop.StatusOpen" : "Shop.StatusClosed") + (hours ? ` (${hours})` : "");
+        status = `<span class="status ${open2 ? "open" : "closed"}"><i class="fa-solid ${open2 ? "fa-door-open" : "fa-door-closed"}" inert></i> ${esc(label2)}</span>`;
+      }
+      const terms = [loc("Shop.Terms", { markup: config.markup, buyRate: config.buyRate })];
+      if (config.buysNothing) terms.push(loc("Shop.BuysNothing"));
+      const name = config.name ? `${esc(config.name)} <span class="npc">(${esc(m.name)})</span>` : esc(m.name);
+      const description = config.description && config.gmDescription ? `<div class="gm-description" data-scroll="description">${descriptionHtml(config.description)}</div>` : "";
+      return `<header class="shop-head">
+        <img class="portrait" src="${esc(config.img || m.img)}" alt="${esc(config.name || m.name)}" data-tooltip-text="${esc(loc("Shop.EnlargePicture"))}">
+        <span class="name">${name}</span>
+        ${status}
+        <span class="terms">${esc(terms.join(" \xB7 "))}</span>
+        <span class="purse">${funds}</span>
+        <button type="button" class="head-button" data-action="setup">
+          <i class="fa-solid fa-gear" inert></i> ${esc(loc("Merchant.Configure"))}</button>
+      </header>${description}`;
+    }
+    /** The stock: every item the merchant offers, sold out or not, with what the GM can change. */
+    #renderStock() {
+      const m = this.merchant;
+      const config = merchantConfig(m);
+      const gp = abbreviation("gp");
+      const now = game.time.worldTime;
+      const units = calendarUnits();
+      const rowFor = (item) => {
+        const flags2 = shopFlags(item);
+        const per = pricePer(item);
+        const quantity = pieces(item);
+        const left2 = flags2.until === null ? null : flags2.until - now;
+        const expired = left2 !== null && left2 <= 0;
+        const limited = left2 === null ? "" : expired ? `<span class="limited expired"><i class="fa-solid fa-hourglass-end" inert></i> ${esc(loc("Shop.Expired"))}</span>` : `<span class="limited"><i class="fa-solid fa-hourglass-half" inert></i> ${esc(loc("Shop.Remaining", { time: durationText(left2) }))}</span>`;
+        const offerDays = left2 !== null && !expired ? Math.floor(left2 / units.day) : "";
+        const offerHours = left2 !== null && !expired ? Math.ceil(left2 % units.day / units.hour) : "";
+        const container = item.type === "container";
+        const contents = descendants(m, item).length;
+        const fixedGold = flags2.price !== null ? gold(flags2.price, per) : "";
+        const markedUp = sellPrice({ type: item.type, system: item.system, flags: { [MODULE_ID]: { pricePer: per } } }, config);
+        const list = listPrice(item);
+        const qty = container ? `<span class="muted">\u2014</span>` : `<input type="number" name="stock-qty" data-field="stock.qty.${esc(item.id)}" min="0" step="1" value="${quantity}"
+              aria-label="${esc(loc("Shop.Quantity"))}">`;
+        const editing = this.editing.has(item.id);
+        const edit = editing ? `<tr class="edit-row" data-id="${esc(item.id)}"><td colspan="6"><div class="edit-fields">
+            <label data-tooltip-text="${esc(loc("Shop.PricePerHint"))}">${esc(loc("Shop.PricePer"))}
+              <input type="number" name="stock-per" data-field="stock.per.${esc(item.id)}" min="1" step="1" value="${per}"></label>
+            <label data-tooltip-text="${esc(loc("Shop.MaxStockHint"))}">${esc(loc("Shop.MaxStock"))}
+              <input type="number" name="stock-max" data-field="stock.max.${esc(item.id)}" min="0" step="1"
+                value="${flags2.maxStock ?? ""}"${container || flags2.unlimited ? " disabled" : ""}></label>
+            <label class="offer" data-tooltip-text="${esc(loc("Shop.LimitedForHint"))}">${esc(loc("Shop.LimitedFor"))}
+              <input type="number" name="stock-offer-days" data-field="stock.offerDays.${esc(item.id)}" min="0" step="1" value="${offerDays}" placeholder="0">
+              ${esc(loc("Shop.UnitDays"))}
+              <input type="number" name="stock-offer-hours" data-field="stock.offerHours.${esc(item.id)}" min="0" step="1" value="${offerHours}" placeholder="0">
+              ${esc(loc("Shop.UnitHours"))}</label>
+          </div></td></tr>` : "";
+        const editLabel = loc(editing ? "Shop.EditStockDone" : "Shop.EditStock");
+        return `<tr data-id="${esc(item.id)}" data-name="${esc(String(item.name).toLocaleLowerCase(game.i18n.lang))}"
+          class="stock-row${!flags2.unlimited && !container && quantity < 1 || expired ? " soldout" : ""}${editing ? " editing" : ""}">
+          <td class="item"><img class="item-img" src="${esc(item.img)}" alt="" inert> ${this.#itemName(m.uuid, item)}
+            ${contents ? `<span class="contents">${esc(loc("Trade.Contents", { count: contents }))}</span>` : ""}${limited}</td>
+          <td class="num">${qty}</td>
+          <td class="center"><input type="checkbox" name="stock-unlimited" data-field="stock.unlimited.${esc(item.id)}"${flags2.unlimited ? " checked" : ""}
+            data-tooltip-text="${esc(loc("Shop.Unlimited"))}" aria-label="${esc(loc("Shop.Unlimited"))}"></td>
+          <td class="num list">${unitHtml(list, per)}</td>
+          <td class="unit"><input type="number" name="stock-fixed" data-field="stock.fixed.${esc(item.id)}" min="0" step="any" value="${fixedGold}"
+            placeholder="${gold(markedUp, per)}" data-tooltip-text="${esc(loc("Shop.PriceHint"))}"
+            aria-label="${esc(loc("Shop.Price"))}"> ${esc(gp)}${perLabel(per)}</td>
+          <td class="actions"><div class="row-actions">
+            <button type="button" class="icon${editing ? " active" : ""}" data-action="editStock" data-tooltip-text="${esc(editLabel)}"
+              aria-label="${esc(editLabel)}" aria-pressed="${editing}"><i class="fa-solid fa-pen" inert></i></button>
+            <button type="button" class="icon" data-action="removeStock" data-tooltip-text="${esc(loc("Shop.RemoveStock"))}"
+              aria-label="${esc(loc("Shop.RemoveStock"))}"><i class="fa-solid fa-trash" inert></i></button></div></td>
+        </tr>${edit}`;
+      };
+      const groups = byCategory(stockItems(m), (item) => shopFlags(item).until !== null ? LIMITED : isCreatureOffer(item) ? CREATURES : item.type).map((g, i) => `<tbody>
+          ${i ? `<tr class="pl-bar-gap"><td colspan="6"></td></tr>` : ""}
+          <tr class="pl-bar"><th>${esc(g.label)}</th><th class="num">${esc(loc("Shop.Quantity"))}</th><th class="center">\u221E</th>
+            <th class="num">${esc(loc("Shop.ListPrice"))}</th><th>${esc(loc("Shop.Price"))}</th><th></th></tr>
+          ${g.entries.map(rowFor).join("")}
+        </tbody>`).join("");
+      const table = groups ? `<table class="pl-table">${groups}</table>` : `<p class="empty">${esc(loc("Merchant.NoStock"))}</p>`;
+      return `<section class="gm-stock">
+        <div class="gm-stock-head">
+          <h3><i class="fa-solid fa-boxes-stacked" inert></i> ${esc(loc("Shop.Stock"))}</h3>
+          <input type="search" class="shop-search" data-field="stock.search" value="${esc(this.search)}"
+            placeholder="${esc(loc("Shop.Search"))}" aria-label="${esc(loc("Shop.Search"))}">
+        </div>
+        <div class="gm-stock-table" data-scroll="stock">${table}${this.#renderServices()}</div>
+        <p class="drop-hint"><i class="fa-solid fa-hand-pointer" inert></i> ${esc(loc("Shop.DropHint"))}</p>
+      </section>`;
+    }
+    #itemName(actorUuid, line) {
+      if (line.service) return `<span class="name"><i class="fa-solid fa-bell-concierge" inert></i> ${esc(line.name)}</span>`;
+      return `<a class="name" data-action="view" data-uuid="${esc(itemUuid(actorUuid, line.id))}">${esc(line.name)}</a>`;
+    }
+    /**
+     * The services of the shop: name, category and price per row (the picture changes on a click, the description in
+     * the row's edit mode). They never run out, cannot be sold back, and nothing changes hands.
+     */
+    #renderServices() {
+      const gp = abbreviation("gp");
+      const services = merchantServices(this.merchant);
+      const categories = [...new Set([...loc("Shop.ServiceCategories").split("|"), ...services.map((s) => s.category)].filter(Boolean))];
+      const rows = services.map((s) => {
+        const key = `service:${s.id}`;
+        const editing = this.editing.has(key);
+        const editLabel = loc(editing ? "Shop.EditStockDone" : "Shop.EditStock");
+        const edit = editing ? `<tr class="edit-row service-row" data-service="${esc(s.id)}"><td colspan="4"><div class="edit-fields">
+            <label class="wide">${esc(loc("Shop.ServiceDescription"))}
+              <textarea name="svc-description" data-field="svc.description.${esc(s.id)}" rows="2">${esc(s.description)}</textarea></label>
+          </div></td></tr>` : "";
+        return `<tr class="stock-row service-row${editing ? " editing" : ""}" data-service="${esc(s.id)}"
+            data-name="${esc(s.name.toLocaleLowerCase(game.i18n.lang))}">
+          <td class="item">
+            <img class="item-img service-img" src="${esc(s.img || SERVICE_ICON)}" alt="" data-action="pickServiceImage"
+              data-tooltip-text="${esc(loc("Shop.PickServiceImage"))}">
+            <input type="text" name="svc-name" data-field="svc.name.${esc(s.id)}" value="${esc(s.name)}" aria-label="${esc(loc("Shop.ServiceName"))}"></td>
+          <td><input type="text" name="svc-category" data-field="svc.category.${esc(s.id)}" value="${esc(s.category)}"
+            list="pl-service-categories" placeholder="${esc(loc("Shop.Services"))}" aria-label="${esc(loc("Shop.ServiceCategory"))}"></td>
+          <td class="unit"><input type="number" name="svc-price" data-field="svc.price.${esc(s.id)}" min="0" step="any"
+            value="${s.price ? s.price / COPPER.gp : ""}" placeholder="0" aria-label="${esc(loc("Shop.Price"))}"> ${esc(gp)}</td>
+          <td class="actions"><div class="row-actions">
+            <button type="button" class="icon${editing ? " active" : ""}" data-action="editService" data-tooltip-text="${esc(editLabel)}"
+              aria-label="${esc(editLabel)}" aria-pressed="${editing}"><i class="fa-solid fa-pen" inert></i></button>
+            <button type="button" class="icon" data-action="removeService" data-tooltip-text="${esc(loc("Shop.RemoveService"))}"
+              aria-label="${esc(loc("Shop.RemoveService"))}"><i class="fa-solid fa-trash" inert></i></button></div></td>
+        </tr>${edit}`;
+      }).join("");
+      return `<table class="pl-table gm-services"><tbody>
+          <tr class="pl-bar-gap"><td colspan="4"></td></tr>
+          <tr class="pl-bar"><th data-tooltip-text="${esc(loc("Shop.ServiceHint"))}"><i class="fa-solid fa-bell-concierge" inert></i> ${esc(loc("Shop.Services"))}</th>
+            <th>${esc(loc("Shop.ServiceCategory"))}</th><th>${esc(loc("Shop.Price"))}</th><th></th></tr>
+          ${rows}
+        </tbody></table>
+        <datalist id="pl-service-categories">${categories.map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>
+        <button type="button" class="head-button add-service" data-action="addService">
+          <i class="fa-solid fa-plus" inert></i> ${esc(loc("Shop.AddService"))}</button>`;
+    }
+    /** One customer: their basket, what it costs, who agreed, and the buttons. */
+    #renderSession(v) {
+      const locked = this.busy.has(v.shopId) || v.executing;
+      const empty = !v.deal.buy.length && !v.deal.sell.length;
+      return `<article class="gm-session" data-shop="${esc(v.shopId)}">
+        <header class="review-who">
+          <img class="portrait" src="${esc(v.customer.img)}" alt="" inert>
+          <span>${esc(loc("Shop.ReviewWho", { user: v.user, actor: v.customer.name, merchant: v.merchant.name }))}</span>
+          ${v.watchers.length ? `<span class="watchers" data-tooltip-text="${esc(loc("Shop.Watchers"))}"><i class="fa-solid fa-eye" inert></i>
+            ${esc(v.watchers.join(", "))}</span>` : ""}
+        </header>
+        ${empty ? `<p class="empty">${esc(loc("Shop.GMBasketEmpty", { user: v.user }))}</p>` : ""}
+        ${this.#renderBuy(v, locked)}
+        ${this.#renderSell(v, locked)}
+        ${empty ? "" : this.#renderSummary(v, locked)}
+        ${this.#renderFooter(v, locked, empty)}
+      </article>`;
+    }
+    /** The price field of a line, in gold for the pieces its price is meant for; the merchant's price as placeholder. */
+    #unitInput(v, side, line, set, locked) {
+      const gp = abbreviation("gp");
+      const label2 = loc(side === "buy" ? "Shop.SalePricePerPiece" : "Shop.PricePerPiece", { denomination: gp });
+      return `<input type="number" class="gm-unit" name="unit" data-field="${esc(v.shopId)}.unit.${side}.${esc(line.id)}" min="0" step="any"
+        value="${gold(set, line.per)}" placeholder="${gold(line.proposed ?? 0, line.per)}"${locked ? " disabled" : ""} aria-label="${esc(label2)}"> ${esc(gp)}${perLabel(line.per)}`;
+    }
+    #removeButton(locked) {
+      return `<button type="button" class="icon" data-action="remove" data-tooltip-text="${esc(loc("Shop.Remove"))}"
+        aria-label="${esc(loc("Shop.Remove"))}"${locked ? " disabled" : ""}><i class="fa-solid fa-xmark" inert></i></button>`;
+    }
+    #renderBuy(v, locked) {
+      if (!v.deal.buy.length) return "";
+      const rows = v.deal.buy.map((l) => `<tr data-id="${esc(l.id)}" data-side="buy" data-per="${l.per}">
+        <td class="item"><img class="item-img" src="${esc(l.img)}" alt="" inert> ${this.#itemName(v.merchant.uuid, l)}
+          ${l.unlimited ? `<span class="unlimited" data-tooltip-text="${esc(loc("Shop.Unlimited"))}">\u221E</span>` : ""}
+          ${l.contents ? `<span class="contents">${esc(loc("Trade.Contents", { count: l.contents }))}</span>` : ""}</td>
+        <td class="num">${l.quantity}</td>
+        <td class="num proposal">${unitHtml(l.proposed, l.per)}</td>
+        <td class="unit">${this.#unitInput(v, "buy", l, v.terms.buy.get(l.id), locked)}</td>
+        <td class="num line-total">${copperHtml(lineTotal(l.unit, l.quantity))}</td>
+        <td class="center">${this.#removeButton(locked)}</td>
+      </tr>`).join("");
+      return `<section class="review-buy">
+        <table class="pl-table"><thead><tr class="pl-bar"><th>${esc(loc("Shop.Buying"))}</th><th class="num">${esc(loc("Shop.Quantity"))}</th>
+          <th class="num">${esc(loc("Shop.MerchantPrice"))}</th><th>${esc(loc("Shop.GMPrice"))}</th>
+          <th class="num">${esc(loc("Shop.LineTotal"))}</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </section>`;
+    }
+    /** Lines sold: taken or not, the price in gold, with the item's list price and the proposal to compare. */
+    #renderSell(v, locked) {
+      if (!v.deal.sell.length) return "";
+      const rows = v.deal.sell.map((l) => `<tr data-id="${esc(l.id)}" data-side="sell" data-per="${l.per}">
+          <td class="center"><input type="checkbox" name="accepted" data-field="${esc(v.shopId)}.accepted.${esc(l.id)}"${l.accepted ? " checked" : ""}${locked ? " disabled" : ""}
+            aria-label="${esc(loc("Shop.Accept"))}"></td>
+          <td class="item"><img class="item-img" src="${esc(l.img)}" alt="" inert> ${this.#itemName(v.customer.uuid, l)}</td>
+          <td class="num">${l.quantity}</td>
+          <td class="num list">${unitHtml(l.list, l.per)}</td>
+          <td class="num proposal">${unitHtml(l.proposed, l.per)}</td>
+          <td class="unit">${this.#unitInput(v, "sell", l, v.terms.sell.get(l.id)?.unit, locked)}</td>
+          <td class="num line-total">${l.accepted ? copperHtml(lineTotal(l.unit, l.quantity)) : `<span class="refused">${esc(loc("Shop.Refused"))}</span>`}</td>
+          <td class="center">${this.#removeButton(locked)}</td>
+        </tr>`).join("");
+      return `<section class="review-sell">
+        <table class="pl-table"><thead><tr class="pl-bar">
+          <th colspan="2" data-tooltip-text="${esc(loc("Shop.ReviewSellHint"))}">${esc(loc("Shop.Selling"))} <i class="fa-solid fa-circle-info" inert></i></th>
+          <th class="num">${esc(loc("Shop.Quantity"))}</th>
+          <th class="num">${esc(loc("Shop.ListPrice"))}</th><th class="num">${esc(loc("Shop.Proposal"))}</th>
+          <th>${esc(loc("Shop.GMPrice"))}</th><th class="num">${esc(loc("Shop.LineTotal"))}</th><th></th>
+        </tr></thead><tbody>${rows}</tbody></table>
+      </section>`;
+    }
+    /** The bill on the left (with the discount field), the purses on the right. */
+    #renderSummary(v, locked) {
+      const { totals } = v.deal;
+      const rows = [];
+      if (v.deal.buy.length) rows.push(summaryRow(loc("Shop.TotalBuy"), copperHtml(totals.buy)));
+      if (v.deal.buy.length) {
+        const field = `<input type="number" name="discount" data-field="${esc(v.shopId)}.discount" min="0" max="100" step="any"
+          value="${v.terms.discount}"${locked ? " disabled" : ""} aria-label="${esc(loc("Shop.DiscountPercent"))}"> %`;
+        rows.push(`<div class="row discount"><label class="label">${esc(loc("Shop.DiscountLabel"))} ${field}</label>
+          <span class="amount">${totals.discount ? `\u2212${copperHtml(totals.discount)}` : ""}</span></div>`);
+      }
+      if (v.deal.sell.length) rows.push(summaryRow(loc("Shop.TotalSell"), copperHtml(totals.sell)));
+      const net = totals.net;
+      let label2 = loc("Shop.Even");
+      if (net > 0) label2 = loc("Shop.CustomerPays", { actor: v.customer.name });
+      if (net < 0) label2 = loc("Shop.MerchantPays", { merchant: v.merchant.name });
+      rows.push(summaryRow(label2, net ? copperHtml(Math.abs(net)) : "", "total"));
+      const customer = fromUuidSync(v.customer.uuid), merchant = fromUuidSync(v.merchant.uuid);
+      const purses = [summaryRow(v.customer.name, coinsHtml(coinsOf(customer), "\u2014"))];
+      purses.push(v.funds.merchant === null ? summaryRow(v.merchant.name, `<i class="fa-solid fa-infinity" inert></i>`) : summaryRow(v.merchant.name, coinsHtml(coinsOf(merchant), "\u2014")));
+      const warnings = [];
+      if (net > 0 && net > v.funds.customer) warnings.push(loc("Shop.CannotAfford", { actor: v.customer.name }));
+      if (net < 0 && v.funds.merchant !== null && -net > v.funds.merchant) warnings.push(loc("Shop.CannotAfford", { actor: v.merchant.name }));
+      return `<div class="gm-bill">
+        <div class="shop-summary">${rows.join("")}</div>
+        <div class="gm-purses">
+          <h5>${esc(loc("Shop.Purses"))}</h5>
+          ${purses.join("")}
+          ${warnings.map((w) => `<p class="shop-short"><i class="fa-solid fa-triangle-exclamation" inert></i> ${esc(w)}</p>`).join("")}
+        </div>
+      </div>`;
+    }
+    #renderFooter(v, locked, empty) {
+      if (v.executing) {
+        return `<footer class="review-footer"><p class="status"><i class="fa-solid fa-spinner fa-spin" inert></i> ${esc(loc("Shop.Booking"))}</p></footer>`;
+      }
+      const chips = agreementHtml([{ yes: v.agreed.customer, name: v.customer.name }, { yes: v.agreed.gm, name: v.merchant.name }]);
+      const agree = v.agreed.gm ? `<button type="button" data-action="withdraw" class="withdraw"${locked ? " disabled" : ""}><i class="fa-solid fa-rotate-left" inert></i> ${esc(loc("Shop.Withdraw"))}</button>` : `<button type="button" data-action="agree" class="accept"${empty || locked ? " disabled" : ""}
+            data-tooltip-text="${esc(loc("Shop.GMAgreeHint"))}"><i class="fa-solid fa-check" inert></i> ${esc(loc("Shop.Agree"))}</button>`;
+      const reject = `<button type="button" data-action="reject" class="decline"${locked ? " disabled" : ""}><i class="fa-solid fa-ban" inert></i> ${esc(loc("Shop.Reject"))}</button>`;
+      return `<footer class="review-footer">${chips}<div class="buttons">${agree}${reject}</div></footer>`;
+    }
+    /* ---------------------------------------- */
+    /** A field changed: in the stock, or in a customer's basket. */
+    async #onChange(target) {
+      const name = target?.name;
+      if (!name) return;
+      try {
+        const row = target.closest("tr[data-id]");
+        const id = row?.dataset.id;
+        if (name.startsWith("svc-")) {
+          const service = target.closest("[data-service]")?.dataset.service;
+          if (!service) return;
+          if (name === "svc-name") await updateService(this.merchant, service, { name: target.value });
+          else if (name === "svc-category") await updateService(this.merchant, service, { category: target.value });
+          else if (name === "svc-description") await updateService(this.merchant, service, { description: target.value });
+          else if (name === "svc-price") await updateService(this.merchant, service, { gold: target.value });
+          return;
+        }
+        if (name.startsWith("stock-")) {
+          if (!id) return;
+          if (name === "stock-qty") await setStockQuantity(this.merchant, id, target.value);
+          else if (name === "stock-unlimited") await setUnlimited(this.merchant, id, target.checked);
+          else if (name === "stock-per") await setPricePer(this.merchant, id, target.value);
+          else if (name === "stock-fixed") await setFixedPrice(this.merchant, id, target.value);
+          else if (name === "stock-max") await setMaxStock(this.merchant, id, target.value);
+          else if (name.startsWith("stock-offer")) {
+            const fields = target.closest("tr");
+            const value = (field) => fields?.querySelector(`input[name="${field}"]`)?.value;
+            await setOfferDuration(this.merchant, id, value("stock-offer-days"), value("stock-offer-hours"));
+          }
+          return;
+        }
+        const shopId = target.closest("[data-shop]")?.dataset.shop;
+        if (!shopId || this.busy.has(shopId)) return;
+        if (name === "discount") return void shopSetTerms(shopId, { discount: Number(target.value) || 0 });
+        if (!row) return;
+        const side = row.dataset.side;
+        if (name === "accepted") shopSetTerms(shopId, { side, id, accepted: !!target.checked });
+        else if (name === "unit") shopSetTerms(shopId, { side, id, unit: typedUnit(target.value, Number(row.dataset.per) || 1) });
+      } catch (err) {
+        logError("The shop change failed", err);
+      }
+    }
+    async #onDrop(event) {
+      event.preventDefault();
+      this.element.querySelector(".gm-stock")?.classList.remove("drop-target");
+      const TextEditor = foundry.applications.ux.TextEditor.implementation;
+      const data = TextEditor.getDragEventData(event);
+      try {
+        const added = await addStock(this.merchant, data);
+        if (!added) ui.notifications.warn(loc("Shop.DropRefused"));
+      } catch (err) {
+        logError("Could not add the item to the stock", err);
+      }
+    }
+    static #shopOf(target) {
+      return target.closest("[data-shop]")?.dataset.shop ?? null;
+    }
+    static async #onAgree(event, target) {
+      const shopId = ShopGMApp.#shopOf(target);
+      if (!shopId || this.busy.has(shopId)) return;
+      const signature = openShops(this.merchant.uuid).find((v) => v.shopId === shopId)?.deal.signature;
+      this.busy.add(shopId);
+      try {
+        const done = await shopGMAgree(shopId, true, signature);
+        if (!done) ui.notifications.warn(loc("Shop.DealChanged"));
+      } catch (err) {
+        logError("The shop agreement failed", err);
+      }
+      this.busy.delete(shopId);
+      if (this.rendered) this.render();
+    }
+    static async #onWithdraw(event, target) {
+      const shopId = ShopGMApp.#shopOf(target);
+      if (shopId && !this.busy.has(shopId)) await shopGMAgree(shopId, false);
+    }
+    static async #onReject(event, target) {
+      const shopId = ShopGMApp.#shopOf(target);
+      const view = openShops(this.merchant.uuid).find((v) => v.shopId === shopId);
+      if (!shopId || !view || this.busy.has(shopId)) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Shop.Reject"), icon: "fa-solid fa-ban" },
+        content: `<p>${esc(loc("Shop.RejectConfirm", { actor: view.customer.name, merchant: view.merchant.name }))}</p>`,
+        rejectClose: false
+      });
+      if (yes && !shopReject(shopId)) ui.notifications.warn(loc("Shop.Unavailable"));
+    }
+    static #onRemove(event, target) {
+      const shopId = ShopGMApp.#shopOf(target);
+      const row = target.closest("tr[data-id]");
+      if (shopId && row && !this.busy.has(shopId)) shopRemoveLine(shopId, row.dataset.side, row.dataset.id);
+    }
+    static async #onAddService() {
+      await addService(this.merchant, loc("Shop.NewService"));
+    }
+    static async #onRemoveService(event, target) {
+      const id = target.closest("[data-service]")?.dataset.service;
+      const service = merchantServices(this.merchant).find((s) => s.id === id);
+      if (!service) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Shop.RemoveService"), icon: "fa-solid fa-trash" },
+        content: `<p>${esc(loc("Shop.RemoveServiceConfirm", { service: service.name }))}</p>`,
+        rejectClose: false
+      });
+      if (yes) await removeService(this.merchant, service.id);
+    }
+    static #onEditService(event, target) {
+      const id = target.closest("[data-service]")?.dataset.service;
+      if (!id) return;
+      const key = `service:${id}`;
+      if (!this.editing.delete(key)) this.editing.add(key);
+      this.render();
+    }
+    static #onPickServiceImage(event, target) {
+      const id = target.closest("[data-service]")?.dataset.service;
+      if (!id) return;
+      const FilePicker = foundry.applications.apps.FilePicker.implementation;
+      new FilePicker({
+        type: "image",
+        current: target.getAttribute("src"),
+        callback: (path) => updateService(this.merchant, id, { img: path })
+      }).render(true);
+    }
+    static async #onRemoveStock(event, target) {
+      const item = this.merchant.items.get(target.closest("tr[data-id]")?.dataset.id);
+      if (!item) return;
+      const yes = await foundry.applications.api.DialogV2.confirm({
+        window: { title: loc("Shop.RemoveStock"), icon: "fa-solid fa-trash" },
+        content: `<p>${esc(loc("Shop.RemoveStockConfirm", { item: item.name, merchant: this.merchant.name }))}</p>`,
+        rejectClose: false
+      });
+      if (yes) await removeStock(this.merchant, item.id);
+    }
+    static #onEditStock(event, target) {
+      const id = target.closest("tr[data-id]")?.dataset.id;
+      if (!id) return;
+      if (!this.editing.delete(id)) this.editing.add(id);
+      this.render();
+    }
+    static #onView(event, target) {
+      fromUuidSync(target.dataset.uuid)?.sheet?.render(true);
+    }
+    static #onSetup() {
+      openMerchantConfigApp(this.merchant);
+    }
+    static #onSheet() {
+      this.merchant.sheet?.render(true);
+    }
+  };
+  return GMAppClass;
+}
+function openMerchantShop(merchant) {
+  if (!game.user.isGM || !merchant || merchant.documentName !== "Actor") return;
+  let app = apps4.get(merchant.uuid);
+  if (!app) {
+    const App = getGMAppClass();
+    app = new App(merchant);
+    apps4.set(merchant.uuid, app);
+  }
+  app.render({ force: true });
+  if (app.rendered) app.bringToFront?.();
+  return app;
+}
+function refreshMerchantShop(merchant) {
+  const app = merchant?.uuid ? apps4.get(merchant.uuid) : null;
+  if (app?.rendered) app.render();
+}
+function onShopOpened({ merchantUuid }) {
+  openMerchantShop(fromUuidSync(merchantUuid));
+  ui.players?.render();
+}
+function onShopSession({ merchantUuid }) {
+  refreshMerchantShop({ uuid: merchantUuid });
+}
+function onShopSessionEnded({ merchantUuid }) {
+  refreshMerchantShop({ uuid: merchantUuid });
+  ui.players?.render();
+}
+var timeKeys2 = /* @__PURE__ */ new Map();
+function onWorldTimeShops() {
+  for (const app of apps4.values()) {
+    if (!app.rendered) continue;
+    const key = timeKey(app.merchant, app.merchant.items);
+    if (timeKeys2.get(app) === key) continue;
+    timeKeys2.set(app, key);
+    app.render();
+  }
+  for (const app of timeKeys2.keys()) if (!app.rendered) timeKeys2.delete(app);
+}
+function onMerchantItemChange(item) {
+  const actor = item?.parent;
+  if (actor?.documentName === "Actor") refreshMerchantShop(actor);
+}
+function onMerchantActorUpdate(actor) {
+  refreshMerchantShop(actor);
+}
+function onRenderPlayersShops(app, html) {
+  if (!game.user.isGM) return;
+  const shops = openShops();
+  if (!shops.length) return;
+  const bar = playerListBar(app, html);
+  if (!bar || bar.querySelector(".pack-ledger-shop-reviews")) return;
+  const button2 = document.createElement("button");
+  button2.type = "button";
+  button2.className = "pack-ledger-shop-reviews";
+  button2.dataset.tooltipText = loc("Shop.ShopsHint");
+  button2.innerHTML = `<i class="fa-solid fa-store" inert></i> ${esc(loc("Shop.ShopsButton", { count: shops.length }))}`;
+  button2.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    for (const uuid of new Set(openShops().map((v) => v.merchant.uuid))) openMerchantShop(fromUuidSync(uuid));
+  });
+  bar.append(button2);
+}
+
 // src/feature/piles/canvas.ts
 function pileTokenAt(x, y) {
   const g = canvas.grid.size;
@@ -8673,15 +13650,35 @@ function patchPileRuler() {
     }
   });
 }
+var isShopToken = (token, user = game.user) => {
+  const actor = token?.document?.actor;
+  return isMerchant(actor) && !actor.testUserPermission(user, "OWNER");
+};
+function patchMerchantView(proto) {
+  const original = proto?._canView;
+  if (typeof original !== "function") return;
+  proto._canView = function(user, event) {
+    if (!isShopToken(this, user) || this.document.isSecret || !this.visible) return original.call(this, user, event);
+    if (!this.layer.active || canvas.regions?._placementContext || this.layer._draggedToken) return false;
+    if (canvas.controls?.ruler?.active || CONFIG.Canvas.rulerClass?.canMeasure && event?.type === "pointerdown") return false;
+    return true;
+  };
+}
 function patchTokenClick() {
   patchPileRuler();
   const proto = CONFIG.Token.objectClass?.prototype;
+  patchMerchantView(proto);
   const original = proto?._onClickLeft2;
   if (typeof original !== "function") return;
   proto._onClickLeft2 = function(event) {
-    if (!isPileToken(this.document)) return original.call(this, event);
+    const actor = this.document.actor;
+    const pile = isPileToken(this.document);
+    const gmShop = !pile && game.user.isGM && isMerchant(actor);
+    if (!pile && !gmShop && !isShopToken(this)) return original.call(this, event);
     if (!this._propagateLeftClick(event)) event.stopPropagation();
-    openPileApp(this.document);
+    if (pile) openPileApp(this.document);
+    else if (gmShop) openMerchantShop(actor);
+    else openShop(actor);
   };
 }
 function pileTokenOfItem(item) {
@@ -8732,23 +13729,23 @@ function registerPileHooks() {
 }
 
 // src/feature/piles/gm-requests.ts
-var queue5 = Promise.resolve();
+var queue7 = Promise.resolve();
 var REQUEST_TIMEOUT = 2e4;
 function withTimeout(promise, type) {
   let timer;
-  const timeout = new Promise((resolve, reject) => {
+  const timeout = new Promise((resolve2, reject) => {
     timer = setTimeout(() => reject(new Error(`"${type}" took longer than ${REQUEST_TIMEOUT / 1e3} s`)), REQUEST_TIMEOUT);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
-function serial4(handler) {
+function serial5(handler) {
   return (data, senderId) => {
-    queue5 = queue5.then(() => withTimeout(Promise.resolve().then(() => handler(data, senderId)), data?.type)).catch((err) => {
+    queue7 = queue7.then(() => withTimeout(Promise.resolve().then(() => handler(data, senderId)), data?.type)).catch((err) => {
       logError(`Item pile request failed (${data?.type})`, data, err);
       const userId = senderId ?? data?.userId;
       if (userId) notifyUser(userId, "error", loc("Notify.RequestFailed", { error: err?.message ?? String(err) }));
     });
-    return queue5;
+    return queue7;
   };
 }
 async function ownedActor(uuid, user) {
@@ -8896,8 +13893,8 @@ async function executeDropCoins(data, senderId) {
   if (!user.isGM && !withinRange(scene, actor, point, target?.width ?? PILE_SIZE)) {
     return notifyUser(user.id, "warn", loc("Notify.OutOfRange", { actor: actor.name }));
   }
-  const own = coinsOf2(actor);
-  const amounts2 = Object.fromEntries(COINS.map((d) => [d, Math.clamp(Math.floor(Number(data.currency?.[d]) || 0), 0, own[d])]));
+  const own2 = coinsOf2(actor);
+  const amounts2 = Object.fromEntries(COINS.map((d) => [d, Math.clamp(Math.floor(Number(data.currency?.[d]) || 0), 0, own2[d])]));
   if (!hasCoins(amounts2)) return notifyUser(user.id, "warn", loc("Notify.NoCoins", { actor: actor.name }));
   const container = target && data.containerId ? target.actor.items.get(data.containerId) : null;
   if (data.containerId && container?.type !== "container") return notifyUser(user.id, "warn", loc("Notify.AlreadyPicked"));
@@ -8964,10 +13961,10 @@ async function executeSplitCoins(data, senderId) {
     rest: coinsLabel(rest)
   }));
 }
-registerHandler("pileTake", serial4(executeTake));
-registerHandler("pileSplitCoins", serial4(executeSplitCoins));
-registerHandler("pileDrop", serial4(executeDrop));
-registerHandler("pileDropCoins", serial4(executeDropCoins));
+registerHandler("pileTake", serial5(executeTake));
+registerHandler("pileSplitCoins", serial5(executeSplitCoins));
+registerHandler("pileDrop", serial5(executeDrop));
+registerHandler("pileDropCoins", serial5(executeDropCoins));
 
 // src/feature/piles/index.ts
 Hooks.once("init", () => {
@@ -8979,453 +13976,8 @@ Hooks.once("init", () => {
 Hooks.once("setup", () => patchTokenClick());
 Hooks.once("ready", () => refreshAllPileLooks());
 
-// src/feature/blind-names.ts
-var BSR_ID = "blind-skill-rolls";
-function bsrSetting(key) {
-  try {
-    return game.settings.get(BSR_ID, key);
-  } catch {
-    return void 0;
-  }
-}
-function hiddenNameLabel() {
-  const configured = String(bsrSetting("bsrNpcNameReplacement") ?? "").trim();
-  if (configured) return configured;
-  if (game.i18n.has("BSR.NPC.Label.Unknown")) return game.i18n.localize("BSR.NPC.Label.Unknown");
-  return game.i18n.localize("PACK_LEDGER.Trade.Unknown");
-}
-function tokenOf(actor) {
-  if (actor.isToken) return actor.token;
-  const onScene = canvas?.scene?.tokens.find((t) => t.actor === actor);
-  if (onScene) return onScene;
-  for (const scene of game.scenes) {
-    const token = scene.tokens.find((t) => t.actor === actor);
-    if (token) return token;
-  }
-  return null;
-}
-function isNameHidden(actor, user, token) {
-  if (!game.modules.get(BSR_ID)?.active || !user || user.isGM) return false;
-  if (actor.type === "character" || actor.testUserPermission(user, "OWNER")) return false;
-  if (bsrSetting("bsrNpcMaskDefault") !== true) return false;
-  const base = actor.isToken ? actor.baseActor ?? actor : actor;
-  if (base?.flags?.[BSR_ID]?.permRevealed === true) return false;
-  const revealed = (token ?? tokenOf(actor))?.flags?.[BSR_ID]?.revealed;
-  return revealed !== true;
-}
-function visibleName(actor, user = game.user, token = null) {
-  const name = token?.name ?? actor?.name ?? "?";
-  if (!actor) return name;
-  return isNameHidden(actor, user, token) ? hiddenNameLabel() : name;
-}
-
-// src/core/policy/trade-rules.ts
-function isTradeable(item) {
-  return !!item && PHYSICAL_TYPES.has(item.type) && !isBodyPart(item);
-}
-var CURRENCIES = ["pp", "gp", "ep", "sp", "cp"];
-var TRADE_ACTOR_TYPES = /* @__PURE__ */ new Set(["character", "npc"]);
-var ASK_TIMEOUT = 6e4;
-var MAX_OFFER_ITEMS = 100;
-function canTrade(actor) {
-  return actor?.documentName === "Actor" && TRADE_ACTOR_TYPES.has(actor.type) && !isPile(actor);
-}
-var emptyCurrency = () => Object.fromEntries(CURRENCIES.map((d) => [d, 0]));
-var actorCurrency = (actor, denomination) => Math.max(0, Math.floor(Number(actor.system?.currency?.[denomination]) || 0));
-function tradeRange() {
-  return Math.max(0, Number(getSetting("tradeRange")) || 0);
-}
-function inTradeRange(a, b) {
-  const range = tradeRange();
-  if (!range) return true;
-  for (const scene of game.scenes) {
-    const g = scene.grid.size;
-    for (const t of scene.tokens) {
-      if (t.actor !== a) continue;
-      const center = { x: t.x + t.width * g / 2, y: t.y + t.height * g / 2 };
-      if (withinRange(scene, b, center, Math.max(t.width, t.height), range)) return true;
-    }
-  }
-  return false;
-}
-
-// src/feature/trade/sessions.ts
-var sessions = /* @__PURE__ */ new Map();
-function newSide(actor, user) {
-  return { actorUuid: actor.uuid, userId: user.id, items: [], currency: emptyCurrency(), accepted: false };
-}
-var sidesOf = (session) => [["a", session.a], ["b", session.b]];
-function rangeExempt(session) {
-  return !!(game.users.get(session.a.userId)?.isGM && game.users.get(session.b.userId)?.isGM);
-}
-function isBusy(actor) {
-  for (const session of sessions.values()) {
-    if (session.a.actorUuid === actor.uuid || session.b.actorUuid === actor.uuid) return true;
-  }
-  return false;
-}
-function responderFor(actor, requester) {
-  const players = game.users.filter((u) => u.active && !u.isGM && actor.testUserPermission(u, "OWNER"));
-  const player = players.find((u) => u.character === actor) ?? players.find((u) => u === requester) ?? players[0];
-  if (player) return player;
-  if (requester.isGM) return requester;
-  return game.users.activeGM ?? null;
-}
-function requestSide(session, data, user) {
-  const side = data.side === "b" ? "b" : "a";
-  return session?.status === "open" && session[side].userId === user.id ? side : null;
-}
-function sideView(side, user) {
-  const actor = fromUuidSync(side.actorUuid);
-  const items = side.items.map(({ id, quantity }) => {
-    const item = actor?.items.get(id);
-    if (!item) return null;
-    return { id, uuid: item.uuid, name: item.name, img: item.img, quantity, contents: descendants(actor, item).length };
-  }).filter((i) => i);
-  return {
-    actorUuid: side.actorUuid,
-    name: actor ? visibleName(actor, user) : "?",
-    img: actor?.img ?? "",
-    items,
-    currency: { ...side.currency },
-    accepted: side.accepted
-  };
-}
-function broadcast(session) {
-  for (const [side, data] of sidesOf(session)) {
-    const user = game.users.get(data.userId);
-    const state2 = { id: session.id, a: sideView(session.a, user), b: sideView(session.b, user) };
-    sendToUser(data.userId, { type: "tradeState", tradeId: session.id, side, state: state2 });
-  }
-}
-function endSession(session, level, message) {
-  sessions.delete(session.id);
-  clearTimeout(session.timer);
-  const sent = /* @__PURE__ */ new Set();
-  for (const [, data] of sidesOf(session)) {
-    sendToUser(data.userId, { type: "tradeClosed", tradeId: session.id });
-    const user = game.users.get(data.userId);
-    if (message && user && !sent.has(user.id)) notifyUser(user.id, level, message(user));
-    sent.add(data.userId);
-  }
-}
-function actorName(uuid, user) {
-  const actor = fromUuidSync(uuid);
-  return actor ? visibleName(actor, user) : "?";
-}
-async function onInvite(data, senderId) {
-  const user = requestingUser(data, senderId);
-  if (!user || !getSetting("tradeEnabled")) return;
-  const actor = await fromUuid(data.actorUuid);
-  const partner = await fromUuid(data.partnerUuid);
-  if (!canTrade(actor) || !actor.testUserPermission(user, "OWNER")) return;
-  if (!canTrade(partner) || partner === actor) return notifyUser(user.id, "warn", loc("Trade.InvalidPartner"));
-  if (isBusy(actor)) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: actor.name }));
-  if (isBusy(partner)) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: visibleName(partner, user) }));
-  const responder = responderFor(partner, user);
-  if (!responder) return notifyUser(user.id, "warn", loc("Trade.NoResponder", { partner: visibleName(partner, user) }));
-  const session = { id: foundry.utils.randomID(), status: "pending", a: newSide(actor, user), b: newSide(partner, responder) };
-  if (!rangeExempt(session) && !inTradeRange(actor, partner)) {
-    return notifyUser(user.id, "warn", loc("Trade.OutOfRange", { actor: actor.name, partner: visibleName(partner, user) }));
-  }
-  sessions.set(session.id, session);
-  if (responder === user) {
-    session.status = "open";
-    return broadcast(session);
-  }
-  session.timer = setTimeout(() => {
-    if (session.status !== "pending") return;
-    sendToUser(responder.id, { type: "tradeClosed", tradeId: session.id });
-    sessions.delete(session.id);
-    notifyUser(user.id, "notice", loc("Trade.Expired", { partner: visibleName(partner, user) }));
-  }, ASK_TIMEOUT);
-  sendToUser(responder.id, {
-    type: "tradeAsk",
-    tradeId: session.id,
-    user: user.name,
-    from: visibleName(actor, responder),
-    to: visibleName(partner, responder)
-  });
-  notifyUser(user.id, "info", loc("Trade.Asked", { partner: visibleName(partner, user) }));
-}
-async function onRespond(data, senderId) {
-  const user = requestingUser(data, senderId);
-  const session = sessions.get(data.tradeId);
-  if (!user) return;
-  if (!session || session.status !== "pending") return notifyUser(user.id, "warn", loc("Trade.Unavailable"));
-  if (session.b.userId !== user.id) return;
-  clearTimeout(session.timer);
-  if (!data.accept) {
-    sessions.delete(session.id);
-    return notifyUser(session.a.userId, "notice", loc("Trade.Declined", {
-      partner: actorName(session.b.actorUuid, game.users.get(session.a.userId))
-    }));
-  }
-  session.status = "open";
-  broadcast(session);
-}
-function sanitizeOffer(actor, items, currency) {
-  const seen = /* @__PURE__ */ new Set();
-  const offer = [];
-  for (const entry of Array.isArray(items) ? items.slice(0, MAX_OFFER_ITEMS) : []) {
-    const item = actor.items.get(entry?.id);
-    if (!isTradeable(item) || seen.has(item.id)) continue;
-    seen.add(item.id);
-    const stack = stackQuantity(item);
-    offer.push({ id: item.id, quantity: Math.clamp(Math.floor(Number(entry.quantity) || stack), 1, stack) });
-  }
-  const offered = new Set(offer.map((e) => e.id));
-  const insideOffered = (item) => {
-    let parent = actor.items.get(item.system?.container);
-    for (let depth = 0; parent && depth < 10; depth++) {
-      if (offered.has(parent.id)) return true;
-      parent = actor.items.get(parent.system?.container);
-    }
-    return false;
-  };
-  const coins = Object.fromEntries(CURRENCIES.map((d) => [d, Math.clamp(Math.floor(Number(currency?.[d]) || 0), 0, actorCurrency(actor, d))]));
-  return { items: offer.filter((e) => !insideOffered(actor.items.get(e.id))), currency: coins };
-}
-async function onOffer(data, senderId) {
-  const user = requestingUser(data, senderId);
-  const session = sessions.get(data.tradeId);
-  if (!user) return;
-  if (!session) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
-  const side = requestSide(session, data, user);
-  if (!side) return;
-  const actor = await fromUuid(session[side].actorUuid);
-  if (!actor) return;
-  Object.assign(session[side], sanitizeOffer(actor, data.items, data.currency));
-  session.a.accepted = session.b.accepted = false;
-  broadcast(session);
-}
-async function onAccept(data, senderId) {
-  const user = requestingUser(data, senderId);
-  const session = sessions.get(data.tradeId);
-  if (!user) return;
-  if (!session) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
-  const side = requestSide(session, data, user);
-  if (!side || session.executing) return;
-  session[side].accepted = !!data.accepted;
-  if (session.a.accepted && session.b.accepted) return executeTrade(session);
-  broadcast(session);
-}
-function onCancel(data, senderId) {
-  const user = requestingUser(data, senderId);
-  const session = sessions.get(data.tradeId);
-  if (!user || !session || session.executing) return;
-  const side = data.side === "b" ? "b" : "a";
-  if (session[side].userId !== user.id) return;
-  endSession(session, "notice", (u) => loc("Trade.Cancelled", { actor: actorName(session[side].actorUuid, u) }));
-}
-var TradeProblem = class extends Error {
-};
-function resolveOffer(actor, side) {
-  const entries = side.items.map(({ id, quantity }) => {
-    const item = actor.items.get(id);
-    const stack = stackQuantity(item);
-    if (!item || quantity > stack) throw new TradeProblem(loc("Trade.Changed"));
-    const nested = descendants(actor, item);
-    return { item, quantity, stack, nested, data: transferData(item, nested, quantity) };
-  });
-  for (const d of CURRENCIES) {
-    if (side.currency[d] > actorCurrency(actor, d)) throw new TradeProblem(loc("Trade.Changed"));
-  }
-  return entries;
-}
-async function removeOffer(actor, entries, undo) {
-  for (const { item, quantity, stack, nested } of entries) {
-    if (quantity < stack) {
-      await item.update({ "system.quantity": stack - quantity }, BYPASS());
-      undo.push(() => item.update({ "system.quantity": stack }, BYPASS()));
-      continue;
-    }
-    const snapshot = [item, ...nested].map((i) => i.toObject());
-    await actor.deleteEmbeddedDocuments("Item", snapshot.map((i) => i._id), BYPASS());
-    undo.push(() => Item.implementation.createDocuments(snapshot, { parent: actor, keepId: true, ...BYPASS() }));
-  }
-}
-async function giveOffer(actor, entries, user, undo) {
-  const rules = user.isGM ? { notifyUser: user.id } : { strict: true, notifyUser: user.id };
-  for (const entry of entries) {
-    const [top, ...contents] = remapIds(foundry.utils.deepClone(entry.data));
-    const merged = !contents.length && await mergeIntoStack(actor, top, { [MODULE_ID]: rules });
-    if (merged) {
-      const { item, previous } = merged;
-      undo.push(() => actor.items.has(item.id) && item.update({ "system.quantity": previous }, BYPASS()));
-      continue;
-    }
-    const [created] = await Item.implementation.createDocuments([top], { parent: actor, keepId: true, [MODULE_ID]: rules });
-    if (!created) return false;
-    undo.push(() => actor.items.has(created.id) && actor.deleteEmbeddedDocuments("Item", [created.id], BYPASS()));
-    if (!contents.length) continue;
-    const added = await Item.implementation.createDocuments(contents, { parent: actor, keepId: true, ...BYPASS() });
-    const ids = added.map((i) => i.id);
-    undo.push(() => actor.deleteEmbeddedDocuments("Item", ids.filter((id) => actor.items.has(id)), BYPASS()));
-  }
-  return true;
-}
-async function rollback(undo) {
-  for (const step of undo.reverse()) {
-    try {
-      await step();
-    } catch (err) {
-      logError(`Could not undo part of a failed trade`, err);
-    }
-  }
-}
-var currencyText = (currency) => CURRENCIES.filter((d) => currency[d] > 0).map((d) => `${currency[d]} ${game.i18n.localize(CONFIG.DND5E.currencies?.[d]?.abbreviation ?? d)}`);
-function tradeLines(giver, receiver, entries, currency) {
-  return [
-    ...entries.map((e) => itemLabel(logName(e.item), e.item.type === "container" ? 1 : e.quantity))
-  ].map((text3) => `${giver.name} \u2192 ${receiver.name}: ${text3}`);
-}
-var queue6 = Promise.resolve();
-function executeTrade(session) {
-  session.executing = true;
-  queue6 = queue6.then(() => performTrade(session)).catch((err) => logError(`Trade failed`, err)).finally(() => {
-    session.executing = false;
-  });
-  return queue6;
-}
-async function performTrade(session) {
-  const a = await fromUuid(session.a.actorUuid);
-  const b = await fromUuid(session.b.actorUuid);
-  const ua = game.users.get(session.a.userId);
-  const ub = game.users.get(session.b.userId);
-  const fail = (message) => {
-    session.a.accepted = session.b.accepted = false;
-    for (const user of /* @__PURE__ */ new Set([ua, ub])) if (user) notifyUser(user.id, "warn", message(user));
-    broadcast(session);
-  };
-  if (!a || !b || !ua || !ub || !a.testUserPermission(ua, "OWNER") || !b.testUserPermission(ub, "OWNER")) {
-    return endSession(session, "warn", () => loc("Trade.Unavailable"));
-  }
-  if (!rangeExempt(session) && !inTradeRange(a, b)) {
-    return fail((u) => loc("Trade.OutOfRange", { actor: visibleName(a, u), partner: visibleName(b, u) }));
-  }
-  let fromA;
-  let fromB;
-  try {
-    fromA = resolveOffer(a, session.a);
-    fromB = resolveOffer(b, session.b);
-  } catch (err) {
-    if (err instanceof TradeProblem) return fail(() => err.message);
-    throw err;
-  }
-  if (!fromA.length && !fromB.length && !currencyText(session.a.currency).length && !currencyText(session.b.currency).length) {
-    return fail(() => loc("Trade.Nothing"));
-  }
-  const givenByA = cardEntries(fromA, session.a.currency);
-  const givenByB = cardEntries(fromB, session.b.currency);
-  const undo = [];
-  let coinsA = null;
-  let coinsB = null;
-  try {
-    await removeOffer(a, fromA, undo);
-    await removeOffer(b, fromB, undo);
-    if (!await giveOffer(b, fromA, ub, undo)) {
-      await rollback(undo);
-      return fail((u) => loc("Trade.Blocked", { actor: visibleName(b, u) }));
-    }
-    if (!await giveOffer(a, fromB, ua, undo)) {
-      await rollback(undo);
-      return fail((u) => loc("Trade.Blocked", { actor: visibleName(a, u) }));
-    }
-    const coins = (actor, give, get) => Object.fromEntries(CURRENCIES.map((d) => [`system.currency.${d}`, actorCurrency(actor, d) - give[d] + get[d]]));
-    coinsA = coinsOf(a);
-    coinsB = coinsOf(b);
-    await a.update(coins(a, session.a.currency, session.b.currency), { [MODULE_ID]: { coins: "trade" } });
-    await b.update(coins(b, session.b.currency, session.a.currency), { [MODULE_ID]: { coins: "trade" } });
-  } catch (err) {
-    await rollback(undo);
-    fail(() => loc("Trade.Failed"));
-    throw err;
-  }
-  if (coinsA) logModuleCoins("trade", a, ua, coinsA, b.name);
-  if (coinsB) logModuleCoins("trade", b, ub, coinsB, a.name);
-  if (fromA.length || fromB.length) logChange("trade", {
-    actor: a.name,
-    data: { partner: b.name },
-    items: [...tradeLines(a, b, fromA, session.a.currency), ...tradeLines(b, a, fromB, session.b.currency)]
-  }, ua);
-  endSession(session, "info", (u) => loc("Trade.Done", { actor: visibleName(a, u), partner: visibleName(b, u) }));
-  try {
-    await postTradeCard(a, b, givenByA, givenByB);
-  } catch (err) {
-    logError(`Could not post the trade to the chat`, err);
-  }
-}
-function onUserConnected(user, connected) {
-  if (connected || game.user !== game.users.activeGM) return;
-  for (const session of [...sessions.values()]) {
-    if (session.executing) continue;
-    const side = sidesOf(session).find(([, s]) => s.userId === user.id);
-    if (side) endSession(session, "notice", (u) => loc("Trade.Cancelled", { actor: actorName(side[1].actorUuid, u) }));
-  }
-}
-
-// src/feature/trade/chat-card.ts
-function storedName(actor) {
-  const viewer = game.users.find((u) => !u.isGM && !actor.testUserPermission(u, "OWNER"));
-  return viewer ? visibleName(actor, viewer) : actor.name;
-}
-var nameSpan = (actor) => `<span class="actor-name" data-actor-uuid="${esc(actor.uuid)}">${esc(storedName(actor))}</span>`;
-function cardEntries(entries, currency) {
-  return {
-    items: entries.map((e) => ({
-      name: e.item.name,
-      img: e.item.img,
-      quantity: e.item.type === "container" ? 1 : e.quantity,
-      contents: e.nested.length
-    })),
-    coins: currencyText(currency)
-  };
-}
-function cardSection(giver, receiver, { items, coins }) {
-  const rows = items.map((i) => `
-      <li>
-        <img src="${esc(i.img)}" alt="">
-        <span class="name">${esc(i.name)}</span>
-        ${i.quantity > 1 ? `<span class="quantity">\xD7${esc(i.quantity)}</span>` : ""}
-        ${i.contents ? `<span class="contents">${esc(loc("Trade.Contents", { count: i.contents }))}</span>` : ""}
-      </li>`);
-  if (coins.length) rows.push(`
-      <li class="coins"><i class="fa-solid fa-coins"></i><span class="name">${esc(coins.join(", "))}</span></li>`);
-  if (!rows.length) rows.push(`<li class="nothing">${esc(loc("Trade.ChatNothing"))}</li>`);
-  return `
-    <section>
-      <h4>${loc("Trade.ChatGives", { actor: nameSpan(giver), partner: nameSpan(receiver) })}</h4>
-      <ul>${rows.join("")}</ul>
-    </section>`;
-}
-function postTradeCard(a, b, givenByA, givenByB) {
-  const content = `
-    <div class="pack-ledger-trade-card">
-      <h3><i class="fa-solid fa-handshake"></i> ${esc(loc("Trade.ChatTitle"))}</h3>
-      ${cardSection(a, b, givenByA)}
-      ${cardSection(b, a, givenByB)}
-    </div>`;
-  return ChatMessage.create({
-    speaker: { alias: loc("Trade.ChatSpeaker") },
-    content,
-    flags: { [MODULE_ID]: { tradeCard: { actors: [a.uuid, b.uuid] } } }
-  });
-}
-function onRenderTradeCard(message, html) {
-  const root = html instanceof HTMLElement ? html : html?.[0];
-  for (const span of root?.querySelectorAll(".pack-ledger-trade-card .actor-name[data-actor-uuid]") ?? []) {
-    let actor = null;
-    try {
-      actor = fromUuidSync(span.dataset.actorUuid);
-    } catch {
-    }
-    if (actor?.documentName === "Actor") span.textContent = visibleName(actor);
-  }
-}
-
 // src/ui/trade-app.ts
-var apps2 = /* @__PURE__ */ new Map();
+var apps5 = /* @__PURE__ */ new Map();
 var TradeAppClass = null;
 function currencyLabel(denomination) {
   return game.i18n.localize(CONFIG.DND5E.currencies?.[denomination]?.abbreviation ?? denomination);
@@ -9506,13 +14058,13 @@ function getTradeAppClass() {
     _onClose(options) {
       super._onClose?.(options);
       const key = `${this.tradeId}.${this.side}`;
-      if (apps2.get(key) === this) apps2.delete(key);
+      if (apps5.get(key) === this) apps5.delete(key);
       if (!this.ended) sendCancel(this.tradeId, this.side);
     }
     /* ---------------------------------------- */
-    #buildSide(data, own) {
+    #buildSide(data, own2) {
       const section = document.createElement("section");
-      section.className = `trade-side ${own ? "mine" : "theirs"}`;
+      section.className = `trade-side ${own2 ? "mine" : "theirs"}`;
       if (data.accepted) section.classList.add("accepted");
       const header = document.createElement("header");
       const img = document.createElement("img");
@@ -9520,26 +14072,26 @@ function getTradeAppClass() {
       img.alt = "";
       const name = document.createElement("span");
       name.className = "name";
-      name.textContent = own ? loc("Trade.Mine", { actor: data.name }) : loc("Trade.Theirs", { actor: data.name });
+      name.textContent = own2 ? loc("Trade.Mine", { actor: data.name }) : loc("Trade.Theirs", { actor: data.name });
       const status = document.createElement("span");
       status.className = "status";
       status.innerHTML = data.accepted ? `<i class="fa-solid fa-circle-check"></i> ${foundry.utils.escapeHTML(loc("Trade.Accepted"))}` : `<i class="fa-solid fa-hourglass-half"></i> ${foundry.utils.escapeHTML(loc("Trade.Waiting"))}`;
       header.append(img, name, status);
       const list = document.createElement("ol");
       list.className = "trade-items";
-      for (const item of data.items) list.append(this.#buildRow(item, own));
+      for (const item of data.items) list.append(this.#buildRow(item, own2));
       if (!data.items.length) {
         const empty = document.createElement("li");
         empty.className = "empty";
-        empty.textContent = own ? loc("Trade.EmptyMine") : loc("Trade.EmptyTheirs");
+        empty.textContent = own2 ? loc("Trade.EmptyMine") : loc("Trade.EmptyTheirs");
         list.append(empty);
       }
       section.append(header, list);
-      if (own) section.append(this.#buildAddSelect(data));
-      section.append(this.#buildCurrency(data, own));
+      if (own2) section.append(this.#buildAddSelect(data));
+      section.append(this.#buildCurrency(data, own2));
       return section;
     }
-    #buildRow(entry, own) {
+    #buildRow(entry, own2) {
       const row = document.createElement("li");
       row.dataset.itemId = entry.id;
       row.dataset.uuid = entry.uuid;
@@ -9560,7 +14112,7 @@ function getTradeAppClass() {
         contents.textContent = loc("Trade.Contents", { count: entry.contents });
         row.append(contents);
       }
-      if (own) {
+      if (own2) {
         const remove = document.createElement("button");
         remove.type = "button";
         remove.dataset.action = "remove";
@@ -9591,7 +14143,7 @@ function getTradeAppClass() {
       select2.disabled = !items.length;
       return select2;
     }
-    #buildCurrency(data, own) {
+    #buildCurrency(data, own2) {
       const box = document.createElement("div");
       box.className = "trade-currency";
       for (const d of CURRENCIES) {
@@ -9599,7 +14151,7 @@ function getTradeAppClass() {
         label2.className = `coin ${d}`;
         const caption = document.createElement("span");
         caption.textContent = currencyLabel(d);
-        if (own) {
+        if (own2) {
           const input = document.createElement("input");
           input.type = "number";
           input.className = "trade-coin";
@@ -9687,7 +14239,7 @@ function getTradeAppClass() {
       if (doc?.testUserPermission?.(game.user, "LIMITED")) doc.sheet?.render(true);
     }
     static #onAccept() {
-      sendAccept(this.tradeId, this.side, !this.mine.accepted);
+      sendAccept(this.tradeId, this.side, !this.mine.accepted, this.trade.version);
     }
     static #onCancel() {
       this.close();
@@ -9697,18 +14249,18 @@ function getTradeAppClass() {
 }
 function showTradeApp(tradeId, side, state2) {
   const key = `${tradeId}.${side}`;
-  let app = apps2.get(key);
+  let app = apps5.get(key);
   if (app) app.trade = state2;
   else {
     const TradeApp = getTradeAppClass();
     app = new TradeApp(tradeId, side, state2);
-    apps2.set(key, app);
+    apps5.set(key, app);
   }
   app.render({ force: true });
   return app;
 }
 function closeTradeApp(tradeId) {
-  for (const [key, app] of apps2) {
+  for (const [key, app] of apps5) {
     if (!key.startsWith(`${tradeId}.`)) continue;
     app.ended = true;
     app.close();
@@ -9720,6 +14272,8 @@ function requestTrade(actor, partner) {
   if (!game.users.activeGM) return ui.notifications.warn(loc("Notify.NoGM"));
   if (!canTrade(actor) || !actor.isOwner) return;
   if (!canTrade(partner) || partner === actor) return ui.notifications.warn(loc("Trade.InvalidPartner"));
+  if (isMerchant(partner)) return openShop(partner, actor);
+  if (isMerchant(actor)) return ui.notifications.warn(loc("Trade.MerchantNoTrade", { merchant: actor.name }));
   requestGM({ type: "tradeInvite", actorUuid: actor.uuid, partnerUuid: partner.uuid, userId: game.user.id });
 }
 function partnersOf(actor, filter = () => true) {
@@ -9758,11 +14312,6 @@ async function choosePartner(actor, partners) {
   const partner = uuid ? fromUuidSync(uuid)?.actor : null;
   if (partner) requestTrade(actor, partner);
 }
-function ownTradingActor() {
-  const controlled = canvas.tokens?.controlled.map((t) => t.actor).find((a) => canTrade(a) && a.isOwner);
-  const actor = controlled ?? game.user.character;
-  return canTrade(actor) && actor.isOwner ? actor : null;
-}
 function openTrade() {
   const actor = ownTradingActor();
   if (!actor) return ui.notifications.warn(loc("Trade.NoOwnActor"));
@@ -9784,9 +14333,9 @@ function onRenderPlayers2(app, html) {
   });
   bar.append(button2);
 }
-var fromGM = (senderId) => !senderId || !!game.users.get(senderId)?.isGM;
+var fromGM2 = (senderId) => !senderId || !!game.users.get(senderId)?.isGM;
 async function onAsk(data, senderId) {
-  if (!fromGM(senderId)) return;
+  if (!fromGM2(senderId)) return;
   const accept = await foundry.applications.api.DialogV2.confirm({
     window: { title: loc("Trade.AskTitle"), icon: "fa-solid fa-handshake" },
     content: `<p>${foundry.utils.escapeHTML(loc("Trade.AskContent", { user: data.user, from: data.from, to: data.to }))}</p>`,
@@ -9797,18 +14346,18 @@ async function onAsk(data, senderId) {
   requestGM({ type: "tradeRespond", tradeId: data.tradeId, accept: accept === true, userId: game.user.id });
 }
 function onState(data, senderId) {
-  if (fromGM(senderId)) showTradeApp(data.tradeId, data.side, data.state);
+  if (fromGM2(senderId)) showTradeApp(data.tradeId, data.side, data.state);
 }
 function onClosed(data, senderId) {
-  if (!fromGM(senderId)) return;
+  if (!fromGM2(senderId)) return;
   closeTradeApp(data.tradeId);
   if (data.unavailable) ui.notifications.warn(loc("Trade.Unavailable"));
 }
 function sendOffer(tradeId, side, items, currency) {
   requestGM({ type: "tradeOffer", tradeId, side, items, currency, userId: game.user.id });
 }
-function sendAccept(tradeId, side, accepted) {
-  requestGM({ type: "tradeAccept", tradeId, side, accepted, userId: game.user.id });
+function sendAccept(tradeId, side, accepted, version) {
+  requestGM({ type: "tradeAccept", tradeId, side, accepted, version, userId: game.user.id });
 }
 function sendCancel(tradeId, side) {
   requestGM({ type: "tradeCancel", tradeId, side, userId: game.user.id });
@@ -9832,6 +14381,50 @@ registerHandler("tradeAsk", onAsk);
 registerHandler("tradeState", onState);
 registerHandler("tradeClosed", onClosed);
 Hooks.once("init", () => registerTradeHooks());
+
+// src/feature/shop/index.ts
+function addMerchantControl(app, controls) {
+  const actor = app.actor ?? app.document;
+  if (!game.user.isGM || actor?.type !== "npc" || isPile(actor)) return;
+  controls.push({
+    icon: "fa-solid fa-store",
+    label: "PACK_LEDGER.Merchant.Configure",
+    action: "packLedgerMerchant",
+    onClick: () => openMerchantConfigApp(actor)
+  });
+}
+registerHandler("shopOpen", onShopOpen);
+registerHandler("shopCart", onShopCart);
+registerHandler("shopItem", onShopItem);
+registerHandler("shopItemData", onShopItemData);
+registerHandler("shopAgree", onShopAgree);
+registerHandler("shopCancel", onShopCancel);
+registerHandler("shopState", onShopState);
+registerHandler("shopClosed", onShopClosed);
+Hooks.once("init", () => {
+  Hooks.on("getHeaderControlsActorSheetV2", addMerchantControl);
+  Hooks.on("userConnected", onShopUserConnected);
+  Hooks.on("userConnected", onShopHostLeft);
+  for (const hook of ["createItem", "updateItem", "deleteItem"]) {
+    Hooks.on(hook, onShopItemChange);
+    Hooks.on(hook, onMerchantItemChange);
+  }
+  Hooks.on("updateActor", onShopActorUpdate);
+  Hooks.on("updateActor", onMerchantActorUpdate);
+  Hooks.on("updateWorldTime", onWorldTimeShops);
+  Hooks.on("updateWorldTime", onShopWorldTime);
+  Hooks.on("refreshToken", onRefreshTokenBadge);
+  Hooks.on("updateWorldTime", onWorldTimeBadges);
+  Hooks.on("updateActor", onBadgeActorUpdate);
+  Hooks.on("deleteActor", onShopActorDelete);
+  Hooks.on("deleteToken", onShopActorDelete);
+  Hooks.on("pack-and-ledger.shopState", showShopApp);
+  Hooks.on("pack-and-ledger.shopClosed", closeShopApp);
+  Hooks.on("pack-and-ledger.shopOpened", onShopOpened);
+  Hooks.on("pack-and-ledger.shopSession", onShopSession);
+  Hooks.on("pack-and-ledger.shopSessionEnded", onShopSessionEnded);
+  Hooks.on("renderPlayers", onRenderPlayersShops);
+});
 
 // src/feature/currency/invoices.ts
 var MAX_DRAFTS = 5;
@@ -9881,7 +14474,7 @@ var STARTING_TEMPLATES = {
     ["Lodging", "Comfortable single room", "8 sp"]
   ]
 };
-function cleanTemplate(t) {
+function cleanTemplate2(t) {
   return {
     id: str(t?.id, 32) || foundry.utils.randomID(),
     category: str(t?.category, 60).trim() || loc("Invoice.DefaultCategory"),
@@ -9891,13 +14484,13 @@ function cleanTemplate(t) {
 }
 function getTemplates() {
   const stored = game.settings.get(MODULE_ID, "invoiceTemplates");
-  return Array.isArray(stored) ? stored.map(cleanTemplate) : [];
+  return Array.isArray(stored) ? stored.map(cleanTemplate2) : [];
 }
 function saveTemplates(templates) {
   return game.settings.set(
     MODULE_ID,
     "invoiceTemplates",
-    templates.map(cleanTemplate).filter((t) => t.name || t.cost).slice(0, 300)
+    templates.map(cleanTemplate2).filter((t) => t.name || t.cost).slice(0, 300)
   );
 }
 async function seedTemplates() {
@@ -10235,7 +14828,7 @@ function getInvoiceAppClass() {
     }
     #renderTemplates() {
       const groups = this.#groups();
-      const open = this.openCategories ?? new Set(groups.slice(0, 3).map(([c]) => c));
+      const open2 = this.openCategories ?? new Set(groups.slice(0, 3).map(([c]) => c));
       const row = (t) => `
         <div class="template" draggable="true" data-template-id="${t.id}" data-tooltip="${esc(loc("Invoice.DragHint"))}">
           <i class="fa-solid fa-grip-vertical handle" inert></i>
@@ -10261,7 +14854,7 @@ function getInvoiceAppClass() {
           </div>
           <div class="groups">
             ${groups.map(([category, list]) => `
-              <details data-category="${esc(category)}"${open.has(category) ? " open" : ""}>
+              <details data-category="${esc(category)}"${open2.has(category) ? " open" : ""}>
                 <summary>${esc(category)} <span class="count">${list.length}</span></summary>
                 ${list.map(row).join("")}
               </details>`).join("") || `<p class="hint">${esc(loc("Invoice.NoTemplates"))}</p>`}
@@ -10277,9 +14870,9 @@ function getInvoiceAppClass() {
       const recipient = invoiceRecipient(actor);
       const purse = coinsOf(actor);
       const { lines, total, error } = priceLines(draft.lines);
-      const set = (selector, text3) => {
+      const set = (selector, text4) => {
         const n = el.querySelector(selector);
-        if (n) n.textContent = text3;
+        if (n) n.textContent = text4;
       };
       set(".inv-main .recipient", recipient ? loc("Invoice.To", { user: recipient.name }) : loc("Invoice.NoRecipient"));
       el.querySelector(".inv-main .recipient")?.classList.toggle("offline", !recipient);
@@ -10459,10 +15052,10 @@ function onChange2(app, event) {
   const actor = app.actor;
   const sum = input.value.trim().match(SUM);
   if (!d || !sum || !actor?.isOwner) return;
-  const amount = parseAmount(sum[2], d);
-  if (!amount) return;
+  const amount2 = parseAmount(sum[2], d);
+  if (!amount2) return;
   const before = coinsOf(actor._source);
-  const single = DENOMINATIONS.every((k) => k === d || !amount[k]);
+  const single = DENOMINATIONS.every((k) => k === d || !amount2[k]);
   const stop = (level, message) => {
     event.stopImmediatePropagation();
     event.preventDefault();
@@ -10470,7 +15063,7 @@ function onChange2(app, event) {
     showNotification(level, message);
   };
   if (!single && !getSetting("currencyMath")) return stop("warn", loc("Coins.Input.MathOff"));
-  let after = add(before, amount, sum[1] === "+" ? 1 : -1);
+  let after = add(before, amount2, sum[1] === "+" ? 1 : -1);
   let converted = false;
   if (hasNegative(after)) {
     const short = DENOMINATIONS.find((k) => after[k] < 0);
@@ -10528,7 +15121,7 @@ Hooks.once("ready", () => {
 // src/feature/tracker/spells.ts
 var SLOT_PATH = /^system\.spells\.(spell([1-9])|pact)\.value$/;
 var spellsTracked = () => trackerActive() && !!getSetting("trackerSpells");
-var clean2 = (text3) => String(text3 ?? "").replace(/[[\]{}]/g, "").replace(/\s+/g, " ").trim().slice(0, 100) || "?";
+var clean2 = (text4) => String(text4 ?? "").replace(/[[\]{}]/g, "").replace(/\s+/g, " ").trim().slice(0, 100) || "?";
 var spellLink2 = (item) => `@UUID[${item.uuid}]{${clean2(item.name)}}`;
 function activityOf(message) {
   try {
@@ -10697,13 +15290,13 @@ var FILTERS2 = [
   { id: "character", icon: "fa-solid fa-user-pen" }
 ];
 var WINDOW = 24 * 60 * 60 * 1e3;
-var pad3 = (n) => String(n).padStart(2, "0");
-var dayOf2 = (d) => `${d.getFullYear()}-${pad3(d.getMonth() + 1)}-${pad3(d.getDate())}`;
+var pad4 = (n) => String(n).padStart(2, "0");
+var dayOf2 = (d) => `${d.getFullYear()}-${pad4(d.getMonth() + 1)}-${pad4(d.getDate())}`;
 var clock2 = (time) => {
   const date = new Date(time);
-  const text3 = date.toLocaleTimeString(game.i18n.lang, { hour: "2-digit", minute: "2-digit" });
-  if (dayOf2(date) === dayOf2(/* @__PURE__ */ new Date())) return text3;
-  return `${date.toLocaleDateString(game.i18n.lang, { day: "2-digit", month: "2-digit" })} ${text3}`;
+  const text4 = date.toLocaleTimeString(game.i18n.lang, { hour: "2-digit", minute: "2-digit" });
+  if (dayOf2(date) === dayOf2(/* @__PURE__ */ new Date())) return text4;
+  return `${date.toLocaleDateString(game.i18n.lang, { day: "2-digit", month: "2-digit" })} ${text4}`;
 };
 var tagsOf3 = (entry, key) => entry.tags.filter(([k]) => k === key).map(([, v]) => v);
 function deltaHtml2(coins) {
@@ -10739,7 +15332,7 @@ function activityCard(entry) {
   };
 }
 function coinCard(entry) {
-  const where = entry.note && !entry.lines.length ? ` \xB7 ${esc(entry.source === "trade" ? loc("CoinLog.With", { name: entry.note }) : entry.note)}` : "";
+  const where = entry.note && !entry.lines.length ? ` \xB7 ${esc(entry.source === "trade" || entry.source === "shop" ? loc("CoinLog.With", { name: entry.note }) : entry.note)}` : "";
   const rows = [
     `<p><strong>${esc(entry.actor)}</strong>${where}</p>`,
     `<p class="coins">${deltaHtml2(entry.delta)}${deltaCopper(entry) ? ` <span class="value">(${esc(goldText(deltaCopper(entry), { signed: true }))})</span>` : ""}</p>`

@@ -46,6 +46,15 @@ export function requestGM(payload?: any) {
 }
 
 /**
+ * Send a request to the active GM only: executed locally when we are the active GM, otherwise emitted. Unlike
+ * requestGM, a co-GM does not run the handler itself, so state kept by the active GM stays in one place.
+ */
+export function requestActiveGM(payload?: any) {
+  if ( game.user === game.users.activeGM ) return handlers.get(payload.type)?.(payload, game.user.id);
+  game.socket.emit(SOCKET, payload);
+}
+
+/**
  * Resolve the user a request was made by. The payload's `userId` is only trusted when the server did not
  * supply a sender id or when both agree.
  * @returns {User|null}

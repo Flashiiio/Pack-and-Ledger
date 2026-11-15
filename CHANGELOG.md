@@ -1,3 +1,47 @@
+## [1.2.0] - 2026-11-15
+
+### Added
+
+#### Merchants and shops
+
+- **Merchants:** Set up NPCs as merchants with a shop name, picture, description and opening hours. Configure markups, buy-back rates and funds. Players open shops through the token or the Trade button.
+- **Shop badge:** A coin badge in the top-right corner of a merchant token identifies the shop. When the shop is closed, the badge is grey and translucent. It can be disabled in the module settings.
+- **Shared shopping:** Players and the GM see the basket live. The GM can adjust prices and discounts; both sides confirm the deal. Other players can watch. Purchases and sales appear in chat and the logs.
+- **Stock management:** Search, item previews, fixed and bundle prices, unlimited stock and restocking up to a maximum quantity. Purchases that do not fit in the buyer's inventory are placed in a pile beside their token when piles are enabled.
+- **Services and offers:** Book lodging, food and other services directly in the shop. Limited offers expire by game time.
+- **Shop templates:** Built-in merchant profiles provide stock for the 2014 and 2024 rules. Custom templates can be edited in a compendium, saved, imported and exported.
+- **Creatures in shops:** The GM can add mounts, pack animals and other creatures to the stock. Known animals have preset list prices; other creatures can be given a fixed price. Each purchase creates actors owned by the player. Their linked tokens are placed near the buyer where possible. The stable profile includes Riding Horse, Draft Horse, Pony, Mule and Warhorse.
+
+#### Ammunition
+
+- **Ammunition recovery:** After combat, the GM can return spent ammunition through a chat card: half the shots or a dice roll. Ammunition types and recovery are configurable; collections are logged.
+
+#### Group fund
+
+- **Group fund:** Savings goals with a progress bar and a chat notification when reached.
+
+### Changed
+
+#### Compendiums
+
+- Consistent world compendium names: "Pack & Ledger – Containers", "Pack & Ledger – Shop Templates" and "Pack & Ledger – Logs". Existing log compendiums keep their names.
+
+### Fixed
+
+#### Trading and shops
+
+- Failed trades also roll back coin transfers. Offers cannot change while a trade is being completed. Agreements to offers that have since changed no longer count.
+- Trades and shops prevent item duplication when another module blocks a transfer.
+
+#### Group fund
+
+- Reserved group funds retain their value when coins are converted. If funds fall short, reservations in the main account are reduced first.
+
+#### Inventory and containers
+
+- Stacks merge only when their properties match and neither has spent uses.
+- Slot limits correctly account for multiple weapon stacks added together. Capacity limits also apply when containers and their contents are created together.
+
 ## [1.1.0] - 2026-11-14
 
 ### Added

@@ -167,9 +167,11 @@ export function isPairedWeapon(item?: any) {
  * @param {string} slot
  * @param {Record<string, number>} [quantities]  Quantities to use instead of the items' own, by item id.
  */
-export function slotCost(items: any[], slot?: any, quantities: Record<string, number> = {}) {
+export function slotCost(items: any[], slot?: any,
+  quantities: Record<string, number> | ((item: any) => number | undefined) = {}) {
   if ( slot !== "weapon" ) return items.length;
-  const count = (item: any) => Math.max(1, Math.floor(Number(quantities[item.id] ?? item.system?.quantity ?? 1)) || 1);
+  const given = (item: any) => (typeof quantities === "function") ? quantities(item) : quantities[item.id];
+  const count = (item: any) => Math.max(1, Math.floor(Number(given(item) ?? item.system?.quantity ?? 1)) || 1);
   let others = 0;
   let daggers = 0;
   for ( const item of items ) {
@@ -210,7 +212,7 @@ export function slotUsage(actor?: any, { excludeId }: any={}) {
  * @param {Actor} actor
  * @param {Item} item
  * @param {object} [options]
- * @param {Record<string, Set<string>>} [options.pendingSlots]  Ids of items that already claimed a slot earlier in
+ * @param {Record<string, Map<string, {item: Item, quantity?: number}>>} [options.pendingSlots]  Items (by id) that already claimed a slot earlier in
  *                                                            the same batch, keyed by slot.
  * @param {number} [options.weight]                        Unit weight to use for the item instead of its current one.
  * @returns {{ok: boolean, reason?: "mustStow"|"slotFull"|"slotWeight", slot?: string|null, max?: number,
@@ -234,12 +236,16 @@ export function checkTopLevel(actor: any, item?: any, { pendingSlots={}, weight:
   }
 
   const max = getLimit(slot);
-  // Items already claimed in this batch count once via the claim, not again with their stored state.
-  const claimed = pendingSlots[slot] ?? new Set<any>();
+  // Items already claimed in this batch count with their claim (and its quantity: a stack of weapons takes a slot
+  // per weapon), not again with their stored state.
+  const claimed: Map<string, { item: any; quantity?: number }> = pendingSlots[slot] ?? new Map();
   const others = topLevelItems(actor, item.id).filter((i?: any) => (getSlot(i) === slot) && !claimed.has(i.id));
+  const earlier = [...claimed.entries()].filter(([id, c]) => (c.item !== item) && (!item.id || (id !== item.id)));
+  const counts = new Map<any, number | undefined>(earlier.map(([, c]) => [c.item, c.quantity]));
   // With the item: a second dagger fits into the slot of the first one.
-  const quantities = (quantity !== undefined) && item.id ? { [item.id]: quantity } : {};
-  const used = slotCost([...others, item], slot, quantities) + claimed.size;
+  counts.set(item, quantity);
+  const used = slotCost([...others, ...earlier.map(([, c]) => c.item), item], slot,
+    (i: any) => (counts.has(i) ? counts.get(i) : undefined));
   if ( used > max ) return { ok: false, reason: "slotFull", slot, max };
   return { ok: true, slot };
 }
@@ -262,7 +268,7 @@ export function checkTopLevel(actor: any, item?: any, { pendingSlots={}, weight:
  * @param {PendingContainer[]} [pending.containers]  Containers of the batch that passed their own checks already.
  * @returns {Item|PendingContainer|null}
  */
-export function findStowTarget(actor: any, item: any, options?: any, { additions=[], containers=[] }: any={}) {
+export function findStowTarget(actor: any, item: any, options?: any, { additions=[], containers=[], created }: any={}) {
   const count = itemCount(item);
   const weightIn = (units?: any) => itemWeightIn(item, units);
   const water = isWater(item);
@@ -286,7 +292,12 @@ export function findStowTarget(actor: any, item: any, options?: any, { additions
   const fits = (holds?: any) => !rulesOn || (holds ? takes(holds) : !needsAmmoContainer(item));
   // A waterskin created in the same batch takes only water.
   const wet = (waterskin: boolean) => !waterskin || !waterskinRulesActive() || water;
-  const stub = containers.find((c?: any) => (c.id !== item.id) && fits(c.ammo) && wet(!!c.waterskin));
+  // A container of the batch whose pre-hook was seen is checked like any other (its room, what it takes).
+  const roomIn = (c: any) => {
+    const doc = created?.get?.(c.id);
+    return !doc || !findOverflow(doc, { count, weightIn, pending: additions, item });
+  };
+  const stub = containers.find((c?: any) => (c.id !== item.id) && fits(c.ammo) && wet(!!c.waterskin) && roomIn(c));
   if ( stub ) return stub;
   if ( Array.isArray(options.data) ) {
     const data = options.data.find((d?: any) => (d.type === "container") && d._id && (d._id !== item.id)

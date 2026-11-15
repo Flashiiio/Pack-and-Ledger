@@ -249,7 +249,7 @@ export function getCoinLogAppClass() {
     /** The pile or trading partner of coins the module moved. */
     #where(e: CoinEntry): string {
       if ( !e.note || e.lines.length ) return "";
-      const text = (e.source === "trade") ? loc("CoinLog.With", { name: e.note }) : e.note;
+      const text = ((e.source === "trade") || (e.source === "shop")) ? loc("CoinLog.With", { name: e.note }) : e.note;
       return `<br><small class="where">${esc(text)}</small>`;
     }
 

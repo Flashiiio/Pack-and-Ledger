@@ -1,8 +1,8 @@
 {
   "id": "pack-and-ledger",
   "title": "Pack & Ledger",
-  "version": "1.1.0",
-  "description": "<p>Inventory, coins and character logs for dnd5e. Enforce container capacity and body slot limits, manage item piles on the map, and trade items and coins between characters. Track shared supplies, allocate food and water for group rests, and reserve coins in a group fund.</p><p>Log coin movements, send invoices, and track character changes. The GM can save character snapshots and restore selected data. Logs are stored in a world compendium accessible only to the GM, with recent entries shown in a dedicated sidebar tab.</p><p>Inventar, Münzen und Charakterprotokolle für dnd5e. Begrenze die Kapazität von Behältern und die Plätze am Körper. Verwalte Gegenstandshaufen auf der Karte und tausche Gegenstände und Münzen zwischen Charakteren. Behalte gemeinsame Vorräte im Blick, teile Nahrung und Wasser für Gruppenrasten zu und reserviere Münzen in der Gruppenkasse.</p><p>Protokolliere Münzbewegungen, verschicke Rechnungen und verfolge Charakteränderungen. Die Spielleitung kann Momentaufnahmen von Charakteren speichern und ausgewählte Daten wiederherstellen. Die Protokolle liegen in einem Welt-Kompendium, das nur die Spielleitung öffnen kann. Neue Einträge erscheinen in einem eigenen Reiter der Seitenleiste.</p>",
+  "version": "1.2.0",
+  "description": "<p>Inventory, coins and character logs for dnd5e. Enforce container capacity and body slot limits, manage item piles on the map, trade items and coins between characters, and run NPC merchants. Track shared supplies, allocate food and water for group rests, and reserve coins in a group fund.</p><p>Log coin movements, send invoices, and track character changes. The GM can save character snapshots and restore selected data. Logs are stored in a world compendium accessible only to the GM, with recent entries shown in a dedicated sidebar tab.</p><p>Inventar, Münzen und Charakterprotokolle für dnd5e. Begrenze die Kapazität von Behältern und die Plätze am Körper. Verwalte Gegenstandshaufen auf der Karte, tausche Gegenstände und Münzen zwischen Charakteren und lass NSC als Händler auftreten. Behalte gemeinsame Vorräte im Blick, teile Nahrung und Wasser für Gruppenrasten zu und reserviere Münzen in der Gruppenkasse.</p><p>Protokolliere Münzbewegungen, verschicke Rechnungen und verfolge Charakteränderungen. Die Spielleitung kann Momentaufnahmen von Charakteren speichern und ausgewählte Daten wiederherstellen. Die Protokolle liegen in einem Welt-Kompendium, das nur die Spielleitung öffnen kann. Neue Einträge erscheinen in einem eigenen Reiter der Seitenleiste.</p>",
   "compatibility": {
     "minimum": "14",
     "verified": "14.370"
@@ -56,5 +56,5 @@
   "license": "https://github.com/Flashiiio/Pack-and-Ledger/blob/main/LICENSE",
   "changelog": "https://github.com/Flashiiio/Pack-and-Ledger/blob/main/CHANGELOG.md",
   "manifest": "https://github.com/Flashiiio/Pack-and-Ledger/releases/latest/download/module.json",
-  "download": "https://github.com/Flashiiio/Pack-and-Ledger/releases/download/v1.1.0/pack-and-ledger.zip"
+  "download": "https://github.com/Flashiiio/Pack-and-Ledger/releases/download/v1.2.0/pack-and-ledger.zip"
 }

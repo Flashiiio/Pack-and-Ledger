@@ -5,7 +5,7 @@ import {
   accountName, canWithdraw, depositors, isEmptyAccount, fundAccounts, fundMode, fundOf, holdingOf, openAccountDialog,
   openDepositDialog, openWithdrawDialog, requestAccount, requestAccountSplit
 } from "../feature/currency/party-fund.js";
-import { MAIN_ACCOUNT, accountOf } from "../core/policy/fund-rules.js";
+import { MAIN_ACCOUNT, accountOf, goalProgress } from "../core/policy/fund-rules.js";
 import { add as addCoins, emptyCoins, isZero } from "../feature/currency/coins.js";
 import { coinsHtml, locCoins } from "./coin-html.js";
 import {
@@ -65,7 +65,7 @@ function getProvisionsAppClass() {
         depositFund: (event: any, target: HTMLElement) => openDepositDialog(undefined, target.dataset.accountId),
         withdrawFund: PackLedgerProvisionsApp.#onWithdrawFund,
         newAccount: () => openAccountDialog(),
-        renameAccount: (event: any, target: HTMLElement) => openAccountDialog(target.dataset.accountId),
+        editAccount: (event: any, target: HTMLElement) => openAccountDialog(target.dataset.accountId),
         deleteAccount: PackLedgerProvisionsApp.#onDeleteAccount,
         refillWater: PackLedgerProvisionsApp.#onRefillWater,
         switchList: PackLedgerProvisionsApp.#onSwitchList
@@ -179,6 +179,7 @@ function getProvisionsAppClass() {
             <button type="button" data-action="newAccount"><i class="fa-solid fa-plus" inert></i> ${esc(loc("Fund.NewAccount"))}</button>
           </div>` : ""}
         </section>`;
+      const fmt = (n: number) => n.toLocaleString(game.i18n.lang, { maximumFractionDigits: 2 });
       const cards = fundAccounts().map(account => {
         const id = account.id;
         const holders = members.filter(m => !isZero(holdingOf(m, id)));
@@ -192,7 +193,7 @@ function getProvisionsAppClass() {
           // Only coins of the own characters are shared out.
           ((members.length > 1) && holders.some(m => m.isOwner))
             ? button("splitFund", "fa-scale-balanced", loc("Fund.Split")) : "",
-          (canPay || game.user.isGM) ? button("renameAccount", "fa-pen", loc("Fund.RenameAccount")) : "",
+          (canPay || game.user.isGM) ? button("editAccount", "fa-pen", loc("Fund.EditAccount")) : "",
           // Players remove only purposes without coins.
           ((id !== MAIN_ACCOUNT) && (game.user.isGM || (canPay && isEmptyAccount(id))))
             ? button("deleteAccount", "fa-trash", loc("Fund.DeleteAccount"), `${loc("Fund.DeleteAccount")}: ${loc("Fund.DeleteHint")}`) : ""
@@ -206,6 +207,11 @@ function getProvisionsAppClass() {
             <a data-action="openActor" data-actor-id="${m.id}"><img src="${esc(m.img)}" alt=""><span class="name">${esc(m.name)}</span></a>
             <span class="pl-fund-holding">${coinsHtml(holdingOf(m, id))}</span>${out}</li>`;
         }).join("");
+        const progress = goalProgress(account, sum);
+        const goal = progress ? `<div class="pl-fund-goal ${progress.reached ? "reached" : ""}">
+            <div class="pl-fund-goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(progress.percent)}"><span style="width:${progress.percent}%"></span></div>
+            <span class="pl-fund-goal-text">${progress.reached ? '<i class="fa-solid fa-check" inert></i> ' : ""}${esc(loc("Fund.GoalProgress", { current: fmt(progress.current), goal: fmt(progress.goal) }))}</span>
+          </div>` : "";
         return `<section class="pl-provisions-card pl-fund-card">
           <header>
             <i class="fa-solid fa-sack-dollar pl-fund-icon" inert></i>
@@ -213,6 +219,7 @@ function getProvisionsAppClass() {
             ${buttons ? `<div class="pl-fund-buttons">${buttons}</div>` : ""}
           </header>
           <div class="pl-fund-coins">${isZero(sum) ? `<span class="pl-none">${esc(loc("Fund.None"))}</span>` : coinsHtml(sum)}</div>
+          ${goal}
           ${rows ? `<ul class="pl-items pl-fund-rows">${rows}</ul>` : ""}
         </section>`;
       }).join("");

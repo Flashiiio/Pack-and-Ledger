@@ -64,7 +64,7 @@ body:
     attributes:
       label: Pack & Ledger version
       description: Enter the installed Pack & Ledger version.
-      placeholder: e.g. 1.1.0
+      placeholder: e.g. 1.2.0
     validations:
       required: true
 

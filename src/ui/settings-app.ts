@@ -15,6 +15,7 @@ const PATTERNS = ["freePattern", "clothingPattern", "jugPattern", "trinketPatter
  * - requires: setting keys (or "key=value") that must be on/set for the field to apply
  * - unit:     a unit shown next to a number (an PACK_LEDGER.Config.Unit key or a literal)
  * - min/step: limits of a number input
+ * - multi:    function returning { value: label (or i18n key) } – rendered as a checkbox list, the value is an array
  */
 const TABS: any[] = [
   {
@@ -33,7 +34,14 @@ const TABS: any[] = [
         { key: "overfillMode", requires: ["enforceCapacity"] },
         { key: "overfillHardLimit", requires: ["enforceCapacity", "overfillMode=risk"], unit: "%", min: 0, step: 1 },
         { key: "tearChanceFactor", requires: ["enforceCapacity", "overfillMode=risk"], unit: "×", min: 0, step: 0.1 },
-        "ammoContainers"
+        "ammoContainers",
+        "ammoRecovery",
+        { key: "ammoRecoveryMethod", requires: ["ammoRecovery"] },
+        {
+          key: "ammoRecoveryTypes",
+          requires: ["ammoRecovery"],
+          multi: () => (globalThis as any).CONFIG.DND5E.consumableTypes?.ammo?.subtypes ?? {}
+        }
       ]
     }]
   },
@@ -86,7 +94,7 @@ const TABS: any[] = [
       },
       {
         title: "Trade",
-        fields: ["tradeEnabled", { key: "tradeRange", requires: ["tradeEnabled"], unit: "Squares", min: 0, step: 1 }]
+        fields: ["tradeEnabled", { key: "tradeRange", requires: ["tradeEnabled"], unit: "Squares", min: 0, step: 1 }, "shopBadge"]
       }
     ]
   },
@@ -358,6 +366,14 @@ export function getSettingsAppClass() {
     #renderControl(field: any, config: any, value?: any) {
       const { key } = field;
       const id = `pack-ledger-setting-${key}`;
+      if ( field.multi ) {
+        const selected = Array.isArray(value) ? value : [];
+        return `<div class="pack-ledger-multi" id="${id}">
+          ${Object.entries(field.multi()).map(([option, label]: any) => `
+            <label><input type="checkbox" name="${key}" value="${esc(option)}" data-multi${selected.includes(option) ? " checked" : ""}>
+              <span>${esc(game.i18n.localize(typeof label === "string" ? label : (label?.label ?? option)))}</span></label>`).join("")}
+        </div>`;
+      }
       if ( config.type === Boolean ) {
         return `<label class="pack-ledger-switch"><input type="checkbox" id="${id}" name="${key}"${value ? " checked" : ""}>
           <span class="track" inert><span class="thumb"></span></span></label>`;
@@ -454,6 +470,7 @@ export function getSettingsAppClass() {
       const inputs = this.form.querySelectorAll(`[name="${key}"]`);
       if ( !inputs.length ) return undefined;
       const first = inputs[0];
+      if ( first.hasAttribute("data-multi") ) return [...inputs].filter(i => i.checked).map(i => i.value);
       if ( first.type === "checkbox" ) return first.checked;
       if ( first.type === "radio" ) return [...inputs].find(i => i.checked)?.value ?? configOf(key)?.default;
       if ( first.type === "number" ) {
@@ -466,7 +483,8 @@ export function getSettingsAppClass() {
     /** Write a value into the form. */
     #setFormValue(key: any, value?: any) {
       for ( const input of this.form.querySelectorAll(`[name="${key}"]`) ) {
-        if ( input.type === "checkbox" ) input.checked = !!value;
+        if ( input.hasAttribute("data-multi") ) input.checked = Array.isArray(value) && value.includes(input.value);
+        else if ( input.type === "checkbox" ) input.checked = !!value;
         else if ( input.type === "radio" ) input.checked = (input.value === value);
         else input.value = value ?? "";
         if ( input.classList.contains("pattern") ) this.#checkPattern(input);

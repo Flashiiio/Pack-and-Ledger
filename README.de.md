@@ -26,7 +26,7 @@ Munitionsbehälter und Wasserschläuche nehmen nur ihren vorgesehenen Inhalt auf
 
 Ziehe Gegenstände auf die Karte, um sie abzulegen, und hebe sie mit einem Charakter in Reichweite wieder auf. Die Spielleitung kann Haufen verstecken, Truhen verschließen und Gegenstände als unidentifiziert auslegen. Münzen aus einem Haufen lassen sich mit Vorschau gleichmäßig unter der Gruppe aufteilen.
 
-Über ein gemeinsames Handelsfenster tauschen zwei Charaktere Gegenstände und Münzen. Beide sehen die Angebote und müssen zustimmen. Auch der Handel mit NSC ist möglich; für NSC ohne Spieler übernimmt die Spielleitung.
+Über ein gemeinsames Handelsfenster tauschen zwei Charaktere Gegenstände und Münzen. Beide sehen die Angebote und müssen zustimmen. Auch der Handel mit NSC ist möglich; für NSC ohne Spieler übernimmt die Spielleitung. NSC können außerdem einen Laden betreiben. Spieler stellen ihre Einkäufe und Verkäufe in einem Korb zusammen. Die Spielleitung sieht den Korb live und kann Preise anpassen. Sobald beide Seiten zustimmen, wird das Geschäft abgeschlossen.
 
 [Gegenstandshaufen](https://github.com/Flashiiio/Pack-and-Ledger/wiki/Gegenstandshaufen) · [Handel](https://github.com/Flashiiio/Pack-and-Ledger/wiki/Handel)
 

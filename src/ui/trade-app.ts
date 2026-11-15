@@ -306,7 +306,7 @@ function getTradeAppClass() {
     }
 
     static #onAccept(this: TradeApp) {
-      sendAccept(this.tradeId, this.side, !this.mine.accepted);
+      sendAccept(this.tradeId, this.side, !this.mine.accepted, this.trade.version);
     }
 
     static #onCancel(this: TradeApp) {

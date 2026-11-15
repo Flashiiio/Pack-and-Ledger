@@ -1,16 +1,18 @@
 import { ASK_TIMEOUT, CURRENCIES, MAX_OFFER_ITEMS, actorCurrency, canTrade, emptyCurrency, inTradeRange, isTradeable } from "../../core/policy/trade-rules.js";
 import { logName } from "../../core/policy/pile-rules.js";
-import { descendants, itemLabel, mergeIntoStack, remapIds, stackQuantity, transferData } from "../piles/pile-items.js";
+import { descendants, itemLabel, stackQuantity } from "../piles/pile-items.js";
 import { visibleName } from "../blind-names.js";
 import { notifyUser, requestingUser, sendToUser } from "../../core/socket.js";
 import { getSetting } from "../../core/settings/base-settings.js";
 import { loc } from "../../ui/helpers.js";
-import { BYPASS, MODULE_ID } from "../../core/constants.js";
 import { logError } from "../../debug/logger.js";
+import { TransferProblem, enqueueTransfer, giveOffer, removeOffer, resolveOffer, rollback, setCoins } from "./transfer.js";
 import { cardEntries, postTradeCard } from "./chat-card.js";
 import { logChange } from "../activity-log.js";
 import { logModuleCoins } from "../currency/audit.js";
-import { coinsOf } from "../currency/coins.js";
+import { coinsOf, type Coins } from "../currency/coins.js";
+import { isShopping } from "../shop/sessions.js";
+import { isMerchant } from "../../core/policy/shop-prices.js";
 
 /* -------------------------------------------- */
 /*  GM: Sessions                                 */
@@ -30,7 +32,7 @@ function rangeExempt(session?: any) {
   return !!(game.users.get(session.a.userId)?.isGM && game.users.get(session.b.userId)?.isGM);
 }
 
-function isBusy(actor?: any) {
+export function isTrading(actor?: any) {
   for ( const session of sessions.values() ) {
     if ( (session.a.actorUuid === actor.uuid) || (session.b.actorUuid === actor.uuid) ) return true;
   }
@@ -76,7 +78,7 @@ function sideView(side: any, user?: any) {
 function broadcast(session?: any) {
   for ( const [side, data] of sidesOf(session) ) {
     const user = game.users.get(data.userId);
-    const state = { id: session.id, a: sideView(session.a, user), b: sideView(session.b, user) };
+    const state = { id: session.id, version: session.version ?? 0, a: sideView(session.a, user), b: sideView(session.b, user) };
     sendToUser(data.userId, { type: "tradeState", tradeId: session.id, side, state });
   }
 }
@@ -116,8 +118,15 @@ export async function onInvite(data: any, senderId?: any) {
   const partner = await fromUuid(data.partnerUuid);
   if ( !canTrade(actor) || !actor.testUserPermission(user, "OWNER") ) return;
   if ( !canTrade(partner) || (partner === actor) ) return notifyUser(user.id, "warn", loc("Trade.InvalidPartner"));
-  if ( isBusy(actor) ) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: actor.name }));
-  if ( isBusy(partner) ) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: visibleName(partner, user) }));
+  // A merchant only sells in its shop.
+  for ( const side of [actor, partner] ) {
+    if ( isMerchant(side) ) return notifyUser(user.id, "warn", loc("Trade.MerchantNoTrade", { merchant: visibleName(side, user) }));
+  }
+  if ( isTrading(actor) ) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: actor.name }));
+  if ( isTrading(partner) ) return notifyUser(user.id, "warn", loc("Trade.Busy", { actor: visibleName(partner, user) }));
+  // A shop open with either of them keeps them busy as well.
+  if ( isShopping(actor) ) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: actor.name }));
+  if ( isShopping(partner) ) return notifyUser(user.id, "warn", loc("Shop.Busy", { actor: visibleName(partner, user) }));
   const responder = responderFor(partner, user);
   if ( !responder ) return notifyUser(user.id, "warn", loc("Trade.NoResponder", { partner: visibleName(partner, user) }));
 
@@ -194,10 +203,13 @@ export async function onOffer(data: any, senderId?: any) {
   if ( !user ) return;
   if ( !session ) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
   const side = requestSide(session, data, user);
-  if ( !side ) return;
+  // While the trade is being booked, the offers stay as both agreed to them.
+  if ( !side || session.executing ) return;
   const actor = await fromUuid(session[side].actorUuid);
-  if ( !actor ) return;
+  if ( !actor || session.executing || (sessions.get(session.id) !== session) ) return;
   Object.assign(session[side], sanitizeOffer(actor, data.items, data.currency));
+  // Every change makes a new version: an agreement on its way for an older one counts for nothing.
+  session.version = (session.version ?? 0) + 1;
   session.a.accepted = session.b.accepted = false;
   broadcast(session);
 }
@@ -209,6 +221,7 @@ export async function onAccept(data: any, senderId?: any) {
   if ( !session ) return sendToUser(user.id, { type: "tradeClosed", tradeId: data.tradeId, unavailable: true });
   const side = requestSide(session, data, user);
   if ( !side || session.executing ) return;
+  if ( data.accepted && (data.version !== (session.version ?? 0)) ) return broadcast(session);
   session[side].accepted = !!data.accepted;
   if ( session.a.accepted && session.b.accepted ) return executeTrade(session);
   broadcast(session);
@@ -227,91 +240,25 @@ export function onCancel(data: any, senderId?: any) {
 /*  GM: Execution                                */
 /* -------------------------------------------- */
 
-class TradeProblem extends Error {}
-
-/** Resolve an offer against the actor's current inventory; fails if anything changed in the meantime. */
-function resolveOffer(actor: any, side?: any) {
-  const entries = side.items.map(({ id, quantity }: any) => {
-    const item = actor.items.get(id);
-    const stack = stackQuantity(item);
-    if ( !item || (quantity > stack) ) throw new TradeProblem(loc("Trade.Changed"));
-    const nested = descendants(actor, item);
-    return { item, quantity, stack, nested, data: transferData(item, nested, quantity) };
-  });
-  for ( const d of CURRENCIES ) {
-    if ( side.currency[d] > actorCurrency(actor, d) ) throw new TradeProblem(loc("Trade.Changed"));
-  }
-  return entries;
-}
-
-/** Take the offered items out of the giver's inventory, remembering how to put them back. */
-async function removeOffer(actor: any, entries: any, undo?: any) {
-  for ( const { item, quantity, stack, nested } of entries ) {
-    if ( quantity < stack ) {
-      await item.update({ "system.quantity": stack - quantity }, BYPASS());
-      undo.push(() => item.update({ "system.quantity": stack }, BYPASS()));
-      continue;
-    }
-    const snapshot = [item, ...nested].map(i => i.toObject());
-    await actor.deleteEmbeddedDocuments("Item", snapshot.map(i => i._id), BYPASS());
-    undo.push(() => Item.implementation.createDocuments(snapshot, { parent: actor, keepId: true, ...BYPASS() }));
-  }
-}
-
-/**
- * Put the offered items into the receiver's inventory. Each top item passes the capacity and slot rules on behalf
- * of the receiving player; contents of containers follow unchecked.
- * @returns {Promise<boolean>}  Whether everything fit.
- */
-async function giveOffer(actor: any, entries: any, user: any, undo?: any) {
-  const rules = user.isGM ? { notifyUser: user.id } : { strict: true, notifyUser: user.id };
-  for ( const entry of entries ) {
-    const [top, ...contents] = remapIds(foundry.utils.deepClone(entry.data));
-    // A plain stack joins an identical one the receiver already carries.
-    const merged = !contents.length && await mergeIntoStack(actor, top, { [MODULE_ID]: rules });
-    if ( merged ) {
-      const { item, previous } = merged;
-      undo.push(() => actor.items.has(item.id) && item.update({ "system.quantity": previous }, BYPASS()));
-      continue;
-    }
-    const [created] = await Item.implementation.createDocuments([top], { parent: actor, keepId: true, [MODULE_ID]: rules });
-    if ( !created ) return false;
-    undo.push(() => actor.items.has(created.id) && actor.deleteEmbeddedDocuments("Item", [created.id], BYPASS()));
-    if ( !contents.length ) continue;
-    const added = await Item.implementation.createDocuments(contents, { parent: actor, keepId: true, ...BYPASS() });
-    const ids = added.map((i?: any) => i.id);
-    undo.push(() => actor.deleteEmbeddedDocuments("Item", ids.filter((id?: any) => actor.items.has(id)), BYPASS()));
-  }
-  return true;
-}
-
-async function rollback(undo?: any) {
-  for ( const step of undo.reverse() ) {
-    try { await step(); }
-    catch(err) { logError(`Could not undo part of a failed trade`, err); }
-  }
-}
-
 export const currencyText = (currency?: any) => CURRENCIES.filter(d => currency[d] > 0)
   .map(d => `${currency[d]} ${game.i18n.localize(CONFIG.DND5E.currencies?.[d]?.abbreviation ?? d)}`);
 
-function tradeLines(giver: any, receiver: any, entries: any, currency?: any) {
-  return [
-    ...entries.map((e?: any) => itemLabel(logName(e.item), (e.item.type === "container") ? 1 : e.quantity))
-  ].map(text => `${giver.name} → ${receiver.name}: ${text}`);
+function tradeLines(giver: any, receiver: any, entries: any) {
+  return entries.map((e?: any) => itemLabel(logName(e.item), (e.item.type === "container") ? 1 : e.quantity))
+    .map((text: string) => `${giver.name} → ${receiver.name}: ${text}`);
 }
 
-// Trades run one after another, so two trades never work on the same inventory at once.
-let queue = Promise.resolve();
 function executeTrade(session?: any) {
   session.executing = true;
-  queue = queue.then(() => performTrade(session))
+  return enqueueTransfer(() => performTrade(session))
     .catch(err => logError(`Trade failed`, err))
     .finally(() => { session.executing = false; });
-  return queue;
 }
 
 async function performTrade(session?: any) {
+  // What both agreed to, fixed for the booking.
+  const offerA = foundry.utils.deepClone({ items: session.a.items, currency: session.a.currency });
+  const offerB = foundry.utils.deepClone({ items: session.b.items, currency: session.b.currency });
   const a = await fromUuid(session.a.actorUuid);
   const b = await fromUuid(session.b.actorUuid);
   const ua = game.users.get(session.a.userId);
@@ -332,18 +279,18 @@ async function performTrade(session?: any) {
   let fromA;
   let fromB;
   try {
-    fromA = resolveOffer(a, session.a);
-    fromB = resolveOffer(b, session.b);
+    fromA = resolveOffer(a, offerA);
+    fromB = resolveOffer(b, offerB);
   } catch(err) {
-    if ( err instanceof TradeProblem ) return fail(() => err.message);
+    if ( err instanceof TransferProblem ) return fail(() => err.message);
     throw err;
   }
-  if ( !fromA.length && !fromB.length && !currencyText(session.a.currency).length && !currencyText(session.b.currency).length ) {
+  if ( !fromA.length && !fromB.length && !currencyText(offerA.currency).length && !currencyText(offerB.currency).length ) {
     return fail(() => loc("Trade.Nothing"));
   }
 
-  const givenByA = cardEntries(fromA, session.a.currency);
-  const givenByB = cardEntries(fromB, session.b.currency);
+  const givenByA = cardEntries(fromA, offerA.currency);
+  const givenByB = cardEntries(fromB, offerB.currency);
 
   // Remove first, so that what is handed over frees room (a sword for a sword works with full weapon slots).
   const undo: any = [];
@@ -361,14 +308,16 @@ async function performTrade(session?: any) {
       return fail((u?: any) => loc("Trade.Blocked", { actor: visibleName(a, u) }));
     }
     const coins = (actor: any, give: any, get?: any) => Object.fromEntries(CURRENCIES.map(d =>
-      [`system.currency.${d}`, actorCurrency(actor, d) - give[d] + get[d]]));
-    // Marked as the module's own change: the trade is in the activity log, the coin audit skips it.
+      [d, actorCurrency(actor, d) - give[d] + get[d]])) as Coins;
+    // Marked as the module's own change: the trade is in the activity log, the coin audit skips it. Both purses
+    // are undone with the items when anything fails.
     coinsA = coinsOf(a);
     coinsB = coinsOf(b);
-    await a.update(coins(a, session.a.currency, session.b.currency), { [MODULE_ID]: { coins: "trade" } });
-    await b.update(coins(b, session.b.currency, session.a.currency), { [MODULE_ID]: { coins: "trade" } });
+    await setCoins(a, coinsA, coins(a, offerA.currency, offerB.currency), undo, "trade");
+    await setCoins(b, coinsB, coins(b, offerB.currency, offerA.currency), undo, "trade");
   } catch(err) {
     await rollback(undo);
+    if ( err instanceof TransferProblem ) return fail(() => err.message);
     fail(() => loc("Trade.Failed"));
     throw err;
   }
@@ -379,7 +328,7 @@ async function performTrade(session?: any) {
   if ( fromA.length || fromB.length ) logChange("trade", {
     actor: a.name,
     data: { partner: b.name },
-    items: [...tradeLines(a, b, fromA, session.a.currency), ...tradeLines(b, a, fromB, session.b.currency)]
+    items: [...tradeLines(a, b, fromA), ...tradeLines(b, a, fromB)]
   }, ua);
   endSession(session, "info", (u?: any) => loc("Trade.Done", { actor: visibleName(a, u), partner: visibleName(b, u) }));
   try {

@@ -16,7 +16,7 @@ function storedName(actor?: any) {
   return viewer ? visibleName(actor, viewer) : actor.name;
 }
 
-const nameSpan = (actor?: any) => `<span class="actor-name" data-actor-uuid="${esc(actor.uuid)}">${esc(storedName(actor))}</span>`;
+export const nameSpan = (actor?: any) => `<span class="actor-name" data-actor-uuid="${esc(actor.uuid)}">${esc(storedName(actor))}</span>`;
 
 /** What one side handed over, captured before the items leave its inventory. */
 export function cardEntries(entries: any, currency?: any) {
@@ -31,7 +31,7 @@ export function cardEntries(entries: any, currency?: any) {
   };
 }
 
-function cardSection(giver: any, receiver: any, { items, coins }: any) {
+export function cardSection(giver: any, receiver: any, { items, coins }: any) {
   const rows = items.map((i?: any) => `
       <li>
         <img src="${esc(i.img)}" alt="">

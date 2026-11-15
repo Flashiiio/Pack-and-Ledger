@@ -1,5 +1,7 @@
 import { esc, loc, playerListBar } from "../../ui/helpers.js";
-import { canTrade, inTradeRange } from "../../core/policy/trade-rules.js";
+import { canTrade, inTradeRange, ownTradingActor } from "../../core/policy/trade-rules.js";
+import { isMerchant } from "../../core/policy/shop-prices.js";
+import { openShop } from "../shop/client.js";
 import { requestGM } from "../../core/socket.js";
 import { visibleName } from "../blind-names.js";
 import { getSetting } from "../../core/settings/base-settings.js";
@@ -19,6 +21,9 @@ export function requestTrade(actor: any, partner?: any) {
   if ( !game.users.activeGM ) return ui.notifications.warn(loc("Notify.NoGM"));
   if ( !canTrade(actor) || !actor.isOwner ) return;
   if ( !canTrade(partner) || (partner === actor) ) return ui.notifications.warn(loc("Trade.InvalidPartner"));
+  // A merchant is never traded with: its shop opens instead. A merchant does not trade either.
+  if ( isMerchant(partner) ) return openShop(partner, actor);
+  if ( isMerchant(actor) ) return ui.notifications.warn(loc("Trade.MerchantNoTrade", { merchant: actor.name }));
   requestGM({ type: "tradeInvite", actorUuid: actor.uuid, partnerUuid: partner.uuid, userId: game.user.id });
 }
 
@@ -73,13 +78,6 @@ async function choosePartner(actor: any, partners?: any) {
   });
   const partner = uuid ? fromUuidSync(uuid)?.actor : null;
   if ( partner ) requestTrade(actor, partner);
-}
-
-/** The actor the current user trades with: a controlled token of their own, otherwise their character. */
-function ownTradingActor() {
-  const controlled = canvas.tokens?.controlled.map((t?: any) => t.actor).find((a?: any) => canTrade(a) && a.isOwner);
-  const actor = controlled ?? game.user.character;
-  return (canTrade(actor) && actor.isOwner) ? actor : null;
 }
 
 /**
@@ -140,8 +138,9 @@ export function sendOffer(tradeId: any, side: any, items: any, currency?: any) {
   requestGM({ type: "tradeOffer", tradeId, side, items, currency, userId: game.user.id });
 }
 
-export function sendAccept(tradeId: any, side: any, accepted?: any) {
-  requestGM({ type: "tradeAccept", tradeId, side, accepted, userId: game.user.id });
+/** @param version  The version of the offers the player saw (an agreement counts only for those). */
+export function sendAccept(tradeId: any, side: any, accepted?: any, version?: number) {
+  requestGM({ type: "tradeAccept", tradeId, side, accepted, version, userId: game.user.id });
 }
 
 export function sendCancel(tradeId: any, side?: any) {

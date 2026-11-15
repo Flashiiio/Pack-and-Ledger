@@ -3,8 +3,8 @@ import { getSetting } from "../../core/settings/base-settings.js";
 import { notifyUser, registerHandler, requestGM, requestingUser } from "../../core/socket.js";
 import { coinsLabel } from "../../core/policy/pile-rules.js";
 import {
-  ACCOUNTS_SETTING, HOLDINGS_FLAG, MAIN_ACCOUNT, accountName, accountOf, fundAccounts, fundOf, fundSpent, holdingOf, holdingsOf,
-  type FundAccount
+  ACCOUNTS_SETTING, HOLDINGS_FLAG, MAIN_ACCOUNT, accountName, accountOf, accountTotal, cleanGoal, fundAccounts, fundOf, fundSpent,
+  goalChange, goalProgress, holdingOf, holdingsOf, type FundAccount
 } from "../../core/policy/fund-rules.js";
 import { confirmFundSpend } from "../../ui/fund-warning.js";
 import { logError } from "../../debug/logger.js";
@@ -14,7 +14,7 @@ import { partyMembers } from "../provisions/provisions.js";
 import { changeCoins } from "../piles/pile-tokens.js";
 import { auditActive, logModuleCoins } from "./audit.js";
 import { addCoinEntry } from "./coin-log.js";
-import { DENOMINATIONS, add, coinsOf, coinsText, emptyCoins, isZero, sameCoins, splitCoins, type Coins } from "./coins.js";
+import { DENOMINATIONS, add, coinsOf, coinsText, emptyCoins, isZero, sameCoins, settle, splitCoins, toCopper, type Coins } from "./coins.js";
 
 export { accountName, fundAccounts, fundOf, holdingOf, holdingsOf } from "../../core/policy/fund-rules.js";
 
@@ -42,11 +42,6 @@ export const fundMode = (): FundMode => {
 
 export const hasFund = (actor: any) => !isZero(fundOf(actor));
 
-/** The characters of the group holding coins of the fund. */
-export function fundHolders(): any[] {
-  return partyMembers().filter(hasFund);
-}
-
 /** The characters of the group whose coins the current user may pay in or take out. */
 export const depositors = () => partyMembers().filter((a: any) => a.isOwner);
 
@@ -55,10 +50,16 @@ export const canWithdraw = (actor: any, id: string) => !!actor?.isOwner && !isZe
 
 const holdingKey = (id: string) => `flags.${MODULE_ID}.${HOLDINGS_FLAG}.${id}`;
 
-/** Coins of the purse that are on no account. */
+/**
+ * Coins of the purse that are on no account. An account holds a worth (5 sp of a gold piece, say), so what is free is
+ * the worth left over, in the coins of the purse as far as they go.
+ */
 function freeCoins(actor: any): Coins {
   const purse = coinsOf(actor), fund = fundOf(actor);
-  return Object.fromEntries(DENOMINATIONS.map(d => [d, Math.max(0, purse[d] - fund[d])])) as Coins;
+  const byCoin = Object.fromEntries(DENOMINATIONS.map(d => [d, Math.max(0, purse[d] - fund[d])])) as Coins;
+  const worth = Math.max(0, toCopper(purse) - toCopper(fund));
+  if ( toCopper(byCoin) <= worth ) return byCoin;
+  return settle(purse, worth) ?? byCoin;
 }
 
 /** Note coins (already put into the purse) on the main account (GM, from a pile). */
@@ -77,13 +78,32 @@ export function takesIntoFund(actor: any, asked: boolean): boolean {
 /*  Accounts                                     */
 /* -------------------------------------------- */
 
-const saveAccounts = (list: FundAccount[]) => game.settings.set(MODULE_ID, ACCOUNTS_SETTING, list);
+/** Every write of the accounts on this client runs one after the other, on the list as it is by then. */
+let accountQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Change the accounts: `change` gets the current list (read anew when its turn comes) and returns the list to save,
+ * nothing (the list it changed is saved) or null (nothing to save).
+ */
+function mutateAccounts(change: (list: FundAccount[]) => FundAccount[] | null | void | Promise<FundAccount[] | null | void>): Promise<void> {
+  const task = accountQueue.then(async () => {
+    const list = fundAccounts();
+    const result = await change(list);
+    if ( result === null ) return;
+    await game.settings.set(MODULE_ID, ACCOUNTS_SETTING, result ?? list);
+  });
+  accountQueue = task.catch(() => null);
+  return task;
+}
 
 /** Whether no character has coins for this purpose. */
 export const isEmptyAccount = (id: string) => game.actors.every((a: any) => isZero(holdingOf(a, id)));
 
-/** Open, rename or close an account (through the GM; players may open and rename one, and close an empty one). */
-export function requestAccount(op: "create" | "rename" | "delete", data: { id?: string; name?: string }={}) {
+/**
+ * Open, edit or close an account (through the GM; players may open and edit one, and close an empty one).
+ * Editing sets the name and the goal: no "goal" keeps it, null or 0 removes it.
+ */
+export function requestAccount(op: "create" | "edit" | "delete", data: { id?: string; name?: string; goal?: number | null }={}) {
   if ( !game.users.activeGM ) return ui.notifications.warn(loc("Notify.NoGM"));
   requestGM({ type: "fundAccount", op, ...data, userId: game.user.id });
 }
@@ -93,41 +113,78 @@ async function executeAccount(data: any, senderId?: any) {
   if ( !user ) return;
   const member = user.isGM || partyMembers().some((a: any) => a.testUserPermission(user, "OWNER"));
   if ( !member ) return;
-  const list = fundAccounts();
-  const account = list.find(a => a.id === data.id) ?? null;
-  switch ( data.op ) {
-    case "create": {
-      const name = String(data.name ?? "").trim().slice(0, 40);
-      if ( !name ) return;
-      if ( list.some(a => accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase()) ) {
-        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+  // Messages for the user follow once the accounts are saved.
+  let after: (() => void) | null = null;
+  const warn = (text: string) => { after = () => notifyUser(user.id, "warn", text); return null; };
+  await mutateAccounts(async list => {
+    const account = list.find(a => a.id === data.id) ?? null;
+    switch ( data.op ) {
+      case "create": {
+        const name = String(data.name ?? "").trim().slice(0, 40);
+        if ( !name ) return null;
+        if ( list.some(a => accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase()) ) {
+          return warn(loc("Fund.AccountExists", { account: name }));
+        }
+        const created: FundAccount = { id: foundry.utils.randomID(), name };
+        const goal = cleanGoal(data.goal);
+        if ( goal !== undefined ) {
+          created.goal = goal;
+          created.reached = goalProgress(created, accountTotal(created.id, partyMembers()))?.reached ?? false;
+        }
+        after = () => notifyUser(user.id, "info", loc("Fund.AccountCreated", { account: name }));
+        return [...list, created];
       }
-      await saveAccounts([...list, { id: foundry.utils.randomID(), name }]);
-      return notifyUser(user.id, "info", loc("Fund.AccountCreated", { account: name }));
-    }
-    case "rename": {
-      const name = String(data.name ?? "").trim().slice(0, 40);
-      if ( !account || !name ) return;
-      if ( list.some(a => (a !== account) && (accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) ) {
-        return notifyUser(user.id, "warn", loc("Fund.AccountExists", { account: name }));
+      case "edit": {
+        if ( !account ) return null;
+        // No name sent: the name stays as it is (a player's dialog sends one only when they changed it).
+        const named = data.name !== undefined;
+        const name = named ? String(data.name).trim().slice(0, 40) : accountName(account);
+        if ( named ) {
+          if ( !name && (account.id !== MAIN_ACCOUNT) ) return null;
+          if ( name && list.some(a => (a !== account) && (accountName(a).toLocaleLowerCase() === name.toLocaleLowerCase())) ) {
+            return warn(loc("Fund.AccountExists", { account: name }));
+          }
+        }
+        const old = accountName(account);
+        const oldGoal = account.goal;
+        // The main account keeps its stored (empty, localized "General") name while the shown default is submitted unchanged.
+        if ( named ) account.name = ((account.id === MAIN_ACCOUNT) && (name === old)) ? account.name : name;
+        if ( data.goal !== undefined ) {
+          const goal = cleanGoal(data.goal);
+          if ( goal === undefined ) delete account.goal;
+          else account.goal = goal;
+        }
+        // Editing never announces anything: the flag follows a new goal, and stays as it is otherwise.
+        if ( account.goal !== oldGoal ) {
+          if ( account.goal ) account.reached = goalProgress(account, accountTotal(account.id, partyMembers()))?.reached ?? false;
+          else delete account.reached;
+        }
+        const shown = accountName(account);
+        after = () => {
+          if ( shown !== old ) notifyUser(user.id, "info", loc("Fund.AccountRenamed", { old, account: shown }));
+          if ( account.goal !== oldGoal ) {
+            notifyUser(user.id, "info", account.goal
+              ? loc("Fund.GoalSet", { account: shown, goal: account.goal })
+              : loc("Fund.GoalRemoved", { account: shown }));
+          }
+        };
+        return list;
       }
-      const old = accountName(account);
-      account.name = name;
-      await saveAccounts(list);
-      return notifyUser(user.id, "info", loc("Fund.AccountRenamed", { old, account: name }));
-    }
-    case "delete": {
-      if ( !account || (account.id === MAIN_ACCOUNT) ) return;
-      // Players remove only purposes without coins; the GM any.
-      if ( !user.isGM && !isEmptyAccount(account.id) ) return notifyUser(user.id, "warn", loc("Fund.NotEmpty", { account: accountName(account) }));
-      // The coins on it simply belong to the characters again.
-      for ( const actor of game.actors ) {
-        if ( actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG]?.[account.id] ) await actor.update({ [holdingKey(account.id)]: emptyCoins() });
+      case "delete": {
+        if ( !account || (account.id === MAIN_ACCOUNT) ) return null;
+        // Players remove only purposes without coins; the GM any.
+        if ( !user.isGM && !isEmptyAccount(account.id) ) return warn(loc("Fund.NotEmpty", { account: accountName(account) }));
+        // The coins on it simply belong to the characters again.
+        for ( const actor of game.actors ) {
+          if ( actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG]?.[account.id] ) await actor.update({ [holdingKey(account.id)]: emptyCoins() });
+        }
+        after = () => notifyUser(user.id, "info", loc("Fund.AccountDeleted", { account: accountName(account) }));
+        return list.filter(a => a !== account);
       }
-      await saveAccounts(list.filter(a => a !== account));
-      return notifyUser(user.id, "info", loc("Fund.AccountDeleted", { account: accountName(account) }));
+      default: return null;
     }
-  }
+  });
+  (after as (() => void) | null)?.();
 }
 
 /** Ask for the name of a new account, or a new name for one (given its id). */
@@ -135,23 +192,36 @@ export async function openAccountDialog(accountId?: string) {
   const account = accountId ? accountOf(accountId) : null;
   if ( accountId && !account ) return;
   const result = await foundry.applications.api.DialogV2.prompt({
-    window: { title: loc(account ? "Fund.RenameAccount" : "Fund.NewAccount"), icon: `fa-solid ${account ? "fa-pen" : "fa-sack-dollar"}` },
+    window: { title: loc(account ? "Fund.EditAccount" : "Fund.NewAccount"), icon: `fa-solid ${account ? "fa-pen" : "fa-sack-dollar"}` },
     content: `<div class="form-group">
         <label>${esc(loc("Fund.AccountName"))}</label>
         <div class="form-fields"><input type="text" name="name" maxlength="40" required autofocus
           value="${esc(account ? accountName(account) : "")}" placeholder="${esc(loc("Fund.AccountPlaceholder"))}"></div>
       </div>
+      <div class="form-group">
+        <label>${esc(loc("Fund.Goal"))}</label>
+        <div class="form-fields"><input type="number" name="goal" min="0" step="1" value="${account?.goal ?? ""}"></div>
+        <p class="hint">${esc(loc("Fund.GoalHint"))}</p>
+      </div>
       ${account ? "" : `<p class="hint">${esc(loc("Fund.AccountHint"))}</p>`}`,
     ok: {
-      label: loc(account ? "Fund.RenameAccount" : "Fund.Create"),
+      label: loc(account ? "Fund.EditAccount" : "Fund.Create"),
       icon: `fa-solid ${account ? "fa-check" : "fa-plus"}`,
-      callback: (event: any, button: any) => ({ name: String(button.form.elements.name?.value ?? "").trim() })
+      callback: (event: any, button: any) => ({
+        name: String(button.form.elements.name?.value ?? "").trim(),
+        goal: Number(button.form.elements.goal?.value) || null
+      })
     },
     rejectClose: false
   });
   if ( !result?.name ) return;
   if ( account ) {
-    if ( result.name !== accountName(account) ) requestAccount("rename", { id: account.id, name: result.name });
+    const goal = cleanGoal(result.goal) ?? null;
+    // The name goes along only when it was changed: the GM may see the default name in another language.
+    const renamed = result.name !== accountName(account);
+    if ( renamed || (goal !== (account.goal ?? null)) ) {
+      requestAccount("edit", { id: account.id, goal, ...(renamed ? { name: result.name } : {}) });
+    }
   } else requestAccount("create", result);
 }
 
@@ -435,7 +505,7 @@ const preconfirmed = new Set<string>();
 /** Updates of the module's own (it asked already, or a player answered an invoice) or confirmed ones. */
 function asked(options: any): boolean {
   const own = options?.[MODULE_ID];
-  return !!(own?.bypass || own?.fundConfirmed || own?.notifyUser || (own?.coins === "trade") || (own?.currency?.source === "invoice"));
+  return !!(own?.bypass || own?.fundConfirmed || own?.notifyUser || (own?.coins === "trade") || (own?.coins === "shop") || (own?.currency?.source === "invoice"));
 }
 
 /**
@@ -543,9 +613,41 @@ function onRenderActorSheet(app: any, element: any) {
   }
 }
 
+/** Announce purposes that reached their goal, and note those that fell below it again (active GM). */
+async function checkGoals(): Promise<void> {
+  if ( (game.user !== game.users.activeGM) || (fundMode() === "off") ) return;
+  const members = partyMembers();
+  const reached: FundAccount[] = [];
+  await mutateAccounts(list => {
+    let changed = false;
+    for ( const account of list ) {
+      const change = goalChange(account, accountTotal(account.id, members));
+      if ( !change ) continue;
+      account.reached = (change === "reached");
+      changed = true;
+      if ( change === "reached" ) reached.push(account);
+    }
+    return changed ? list : null;
+  });
+  for ( const account of reached ) {
+    try {
+      const text = loc("Fund.GoalReached", { account: accountName(account), goal: account.goal });
+      await ChatMessage.implementation.create({
+        speaker: { alias: loc("Fund.GoalSpeaker") },
+        content: `<div class="pack-ledger-goal"><p>${esc(text)}</p></div>`,
+        flags: { [MODULE_ID]: { fundGoal: account.id } }
+      });
+    } catch(err) { logError(`Could not announce the savings goal of ${accountName(account)}`, err); }
+  }
+}
+const scheduleGoals = foundry.utils.debounce(
+  () => checkGoals().catch((err: unknown) => logError("Could not check the savings goals of the group fund", err)), 300);
+
 /** The accounts of a character never hold more than the purse (active GM). */
 function onUpdateActor(actor: any, changes: any) {
-  if ( (game.user !== game.users.activeGM) || !foundry.utils.hasProperty(changes, "system.currency") ) return;
+  if ( game.user !== game.users.activeGM ) return;
+  if ( foundry.utils.hasProperty(changes, "system.currency") || foundry.utils.hasProperty(changes, `flags.${MODULE_ID}.${HOLDINGS_FLAG}`) ) scheduleGoals();
+  if ( !foundry.utils.hasProperty(changes, "system.currency") ) return;
   const noted = actor.flags?.[MODULE_ID]?.[HOLDINGS_FLAG];
   if ( !noted || (typeof noted !== "object") ) return;
   const held = holdingsOf(actor);
@@ -565,6 +667,7 @@ Hooks.once("init", () => {
   Hooks.on("updateActor", onUpdateActor);
 });
 Hooks.once("ready", () => {
+  scheduleGoals();
   try { guardCurrencyManager(); }
   catch(err) { logError("Could not watch dnd5e's currency transfer", err); }
 });

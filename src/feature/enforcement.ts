@@ -34,7 +34,8 @@ function pendingState(options?: any) {
   const mod = moduleOptions(options);
   // Non-enumerable: holds closures and must not be serialised with the operation sent to the server.
   if ( !mod.pending ) {
-    Object.defineProperty(mod, "pending", { value: { additions: [], slots: {}, containers: [] }, enumerable: false });
+    // created: the containers of the batch by id, as their pre-hooks saw them (their contents come later in the batch).
+    Object.defineProperty(mod, "pending", { value: { additions: [], slots: {}, containers: [], created: new Map() }, enumerable: false });
   }
   return mod.pending;
 }
@@ -211,7 +212,7 @@ function checkSlot(actor: any, item: any, options?: any, { weight, quantity }: a
   const pending = pendingState(options);
   const check = checkTopLevel(actor, item, { pendingSlots: pending.slots, weight, quantity });
   if ( check.ok && check.slot && (check.slot !== "free") ) {
-    (pending.slots[check.slot] ??= new Set<any>()).add(item.id ?? foundry.utils.randomID());
+    (pending.slots[check.slot] ??= new Map()).set(item.id ?? foundry.utils.randomID(), { item, quantity });
   }
   return check;
 }
@@ -239,6 +240,18 @@ function markWeightlessContents(item: any, options?: any) {
 }
 
 /**
+ * A container created earlier in the same batch, which is not on the actor yet: as its pre-hook saw it, or (older
+ * cores) from the batch's data, with the actor it will belong to.
+ */
+function batchContainer(actor: any, id: string, options?: any) {
+  const seen = pendingState(options).created.get(id);
+  if ( seen ) return seen;
+  const data = Array.isArray(options?.data) ? options.data.find((d: any) => d?._id === id) : null;
+  if ( data?.type !== "container" ) return null;
+  return { ...foundry.utils.deepClone(data), id, actor, parent: actor, flags: data.flags ?? {}, system: data.system ?? {} };
+}
+
+/**
  * preCreateItem: enforce container capacity for items created inside a container,
  * and body-slot limits (with optional auto-stow) for items created at the top level.
  */
@@ -249,11 +262,13 @@ export function onPreCreateItem(item: any, data: any, options?: any) {
   const containerId = item.system.container;
   const count = itemCount(item);
   const weightIn = (units?: any) => itemWeightIn(item, units);
+  // A container of this batch: what goes into it later in the same batch is checked against it.
+  if ( (item.type === "container") && item.id ) pendingState(options).created.set(item.id, item);
 
   if ( containerId ) {
     // Without "Enforce container capacity", findOverflow still keeps the rules of the special containers.
-    const container = actor.items.get(containerId);
-    if ( container?.type !== "container" ) return; // Container is part of the same batch and does not exist yet.
+    const container = actor.items.get(containerId) ?? batchContainer(actor, containerId, options);
+    if ( container?.type !== "container" ) return;
     // Asked to overfill, the user's "yes" creates the item again.
     const retry = (mod: any) => {
       const data = item.toObject();

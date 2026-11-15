@@ -9,7 +9,7 @@ import { CHARACTER_KIND, NOTE_PREFIX, SPELL_KIND } from "../feature/tracker/trac
  */
 
 /** Kinds of entries written by the activity log (activity-log.ts). */
-const ACTIVITY_KINDS = ["pickup", "drop", "trade", "stow", "tidy", "repair", "tear", "discover", "unlock", "provision", "refill"] as const;
+const ACTIVITY_KINDS = ["pickup", "drop", "trade", "stow", "tidy", "repair", "tear", "discover", "unlock", "provision", "refill", "ammoRecovery", "shop"] as const;
 
 const ICONS: Record<string, string> = {
   pickup: "fa-solid fa-hand-holding",
@@ -23,6 +23,8 @@ const ICONS: Record<string, string> = {
   unlock: "fa-solid fa-unlock",
   provision: "fa-solid fa-wheat-awn",
   refill: "fa-solid fa-droplet",
+  ammoRecovery: "fa-solid fa-bow-arrow",
+  shop: "fa-solid fa-store",
   [CHARACTER_KIND]: "fa-solid fa-user-pen",
   [SPELL_KIND]: "fa-solid fa-wand-sparkles",
   info: "fa-solid fa-circle-info",

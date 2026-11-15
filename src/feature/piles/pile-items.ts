@@ -17,6 +17,12 @@ export function stackQuantity(item?: any) {
   return Math.max(1, Math.floor(Number(item?.system?.quantity ?? 1)) || 1);
 }
 
+/** The pieces a stack really holds, 0 included (an empty stack, a merchant's sold-out stock); containers count as one. */
+export function pieces(item?: any) {
+  if ( item?.type === "container" ) return 1;
+  return Math.max(0, Math.floor(Number(item?.system?.quantity ?? 1)) || 0);
+}
+
 /** Items of an actor that are not inside one of its containers. */
 export function topLevel(actor?: any) {
   return actor.items.filter((i?: any) => isPhysicalData(i) && !actor.items.has(i.system?.container));
@@ -45,7 +51,8 @@ export function remapIds(items?: any) {
   const map = new Map(items.map((i?: any) => [i._id, foundry.utils.randomID()]));
   for ( const item of items ) {
     item._id = map.get(item._id);
-    if ( item.system ) item.system.container = map.get(item.system.container) ?? null;
+    // Only a real container id is looked up: a missing one must not find the (also missing) id of an item without one.
+    if ( item.system ) item.system.container = (item.system.container ? map.get(item.system.container) : null) ?? null;
   }
   return items;
 }
@@ -88,12 +95,46 @@ export function maskConsumable(data: any): any {
   return data;
 }
 
-/** Whether an existing item and item source data are the same plain stack (and can be merged). */
+
+/** Source data as one comparable string: keys sorted, empty values left out. */
+function canonical(value: any): string | undefined {
+  if ( (value === undefined) || (value === null) ) return undefined;
+  if ( Array.isArray(value) ) return `[${value.map(v => canonical(v) ?? "null").join(",")}]`;
+  if ( typeof value !== "object" ) return JSON.stringify(value);
+  const parts = Object.keys(value).sort().flatMap(k => {
+    const v = canonical(value[k]);
+    return ((v === undefined) || (v === "{}")) ? [] : [`${JSON.stringify(k)}:${v}`];
+  });
+  return `{${parts.join(",")}}`;
+}
+
+/**
+ * What makes an item what it is, without what may differ between two pieces of one stack: its id and bookkeeping,
+ * where it is kept, how many there are and whether it is equipped (see sameStack).
+ */
+function stackKey(source: any) {
+  const { _id, _stats, sort, folder, ownership, flags, system, effects, ...rest } = source ?? {};
+  const { quantity, container, equipped, ...ownSystem } = system ?? {};
+  const { core, ...ownFlags } = flags ?? {};
+  return canonical({
+    ...rest, system: ownSystem, flags: ownFlags,
+    effects: (Array.isArray(effects) ? effects : []).map(({ _id, _stats, origin, ...effect }: any) => effect)
+  });
+}
+
+/** Pieces that used up some of their uses cannot share a stack: the uses spent belong to one piece. */
+const usesSpent = (source: any) => Number(source?.system?.uses?.spent) > 0;
+
+/**
+ * Whether an existing item and item source data are the same plain stack (and can be merged): all their data alike
+ * (the module's flags too, such as pieces per price), except id, quantity and where they are kept, and neither with
+ * uses spent.
+ */
 export function sameStack(item: any, data?: any) {
   if ( !item || !data || (item.type !== data.type) || (item.type === "container") ) return false;
-  return ((item._source?.name ?? item.name) === data.name) && (item.img === data.img)
-    && ((item._source.system?.weight?.value ?? 0) === (data.system?.weight?.value ?? 0))
-    && ((item._source.system?.identified ?? true) === (data.system?.identified ?? true));
+  const source = item._source ?? item.toObject?.() ?? item;
+  if ( usesSpent(source) || usesSpent(data) ) return false;
+  return stackKey(source) === stackKey(data);
 }
 
 /**
@@ -110,10 +151,11 @@ export async function mergeIntoStack(actor: any, data?: any, options: any={}) {
     .sort((a: any, b?: any) => Number(!!a.system?.container) - Number(!!b.system?.container));
   const add = stackQuantity(data);
   for ( const item of matches ) {
-    const previous = stackQuantity(item);
+    // An empty stack (0 pieces) grows from 0, not from 1.
+    const previous = pieces(item);
     // The capacity and slot rules may reject the growth (e.g. a full container); then try the next stack.
     const updated = await item.update({ "system.quantity": previous + add }, { ...options });
-    if ( updated && (stackQuantity(item) === previous + add) ) return { item, previous };
+    if ( updated && (pieces(item) === previous + add) ) return { item, previous };
   }
   return null;
 }

@@ -1,4 +1,5 @@
 import { registerSetting } from "./base-settings.js";
+import { refreshShopBadges } from "../../ui/shop-badge.js";
 
 /* Tab "Map & Trade": item piles, hidden and locked piles, trading */
 Hooks.once("init", () => {
@@ -12,4 +13,5 @@ Hooks.once("init", () => {
   registerSetting("pileLockDC", { type: Number, default: 15 });
   registerSetting("tradeEnabled", { type: Boolean, default: true });
   registerSetting("tradeRange", { type: Number, default: 1 });
+  registerSetting("shopBadge", { type: Boolean, default: true, onChange: refreshShopBadges });
 });

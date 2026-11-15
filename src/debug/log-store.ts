@@ -1,5 +1,5 @@
 /*
- * The logs, kept in a world compendium that only GMs can open ("Pack & Ledger Logs"). Unlike files in the Data
+ * The logs, kept in a world compendium that only GMs can open ("Pack & Ledger – Logs"). Unlike files in the Data
  * folder, a compendium cannot be downloaded through the server's address, and its documents can really be deleted.
  *
  * Entries are collected for a few seconds and then stored as one small document (a JournalEntry without pages, the
@@ -28,7 +28,7 @@ function plainEntries(text: string): string[] {
 }
 
 export const LOG_PACK_NAME = "pack-and-ledger-logs";
-const LOG_PACK_LABEL = "Pack & Ledger Logs";
+const LOG_PACK_LABEL = "Pack & Ledger – Logs";
 /** Only GMs (and assistants) may open the compendium. */
 const OWNERSHIP = { PLAYER: "NONE", TRUSTED: "NONE", ASSISTANT: "OWNER" };
 const FLUSH_DELAY = 3000;

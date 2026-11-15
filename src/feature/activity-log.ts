@@ -4,7 +4,7 @@ import { MODULE_ID } from "../core/constants.js";
 import { loc } from "../ui/helpers.js";
 
 const MAX_ENTRIES = 100;
-const TYPES = new Set(["tear", "pickup", "stow", "tidy", "repair", "drop", "trade", "discover", "unlock", "provision", "refill"]);
+const TYPES = new Set(["tear", "pickup", "stow", "tidy", "repair", "drop", "trade", "discover", "unlock", "provision", "refill", "ammoRecovery", "shop"]);
 
 const text = (value?: any, max=200) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -14,7 +14,7 @@ const text = (value?: any, max=200) => String(value ?? "").replace(/\s+/g, " ").
 
 /**
  * Record a change made by the module. Entries are stored by the GM; without a GM online they wait in the user's flags.
- * @param {"tear"|"pickup"|"stow"|"tidy"|"repair"|"drop"|"trade"} type
+ * @param {"tear"|"pickup"|"stow"|"tidy"|"repair"|"drop"|"trade"|"discover"|"unlock"|"provision"|"refill"|"ammoRecovery"|"shop"} type
  * @param {object} details
  * @param {string} [details.actor]                      Name of the affected actor.
  * @param {Record<string, string|number>} [details.data] Values for the localized summary.

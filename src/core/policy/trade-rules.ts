@@ -30,6 +30,13 @@ export function canTrade(actor?: any) {
 export const emptyCurrency = () => Object.fromEntries(CURRENCIES.map(d => [d, 0]));
 export const actorCurrency = (actor: any, denomination?: any) => Math.max(0, Math.floor(Number(actor.system?.currency?.[denomination]) || 0));
 
+/** The actor the current user trades (or shops) as: a controlled token of their own, otherwise their character. */
+export function ownTradingActor() {
+  const controlled = canvas.tokens?.controlled.map((t?: any) => t.actor).find((a?: any) => canTrade(a) && a.isOwner);
+  const actor = controlled ?? game.user.character;
+  return (canTrade(actor) && actor.isOwner) ? actor : null;
+}
+
 /** Maximum distance (in grid spaces, edge to edge) between trading tokens; 0 means unlimited. */
 function tradeRange() {
   return Math.max(0, Number(getSetting("tradeRange")) || 0);

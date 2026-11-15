@@ -23,7 +23,7 @@ export const auditActive = (): boolean => !!getSetting("currencyAudit");
  * activity log. Called on the active GM, who carries out these requests.
  * @param note  Where the coins came from or went to (the pile, the trading partner).
  */
-export function logModuleCoins(source: "pileTake" | "pileDrop" | "pileSplit" | "pileFund" | "fundSplit" | "trade", actor: any, user: any, before: Coins, note: string): void {
+export function logModuleCoins(source: "pileTake" | "pileDrop" | "pileSplit" | "pileFund" | "fundSplit" | "trade" | "shop", actor: any, user: any, before: Coins, note: string): void {
   if ( !auditActive() ) return;
   const after = coinsOf(actor);
   const delta = difference(before, after);

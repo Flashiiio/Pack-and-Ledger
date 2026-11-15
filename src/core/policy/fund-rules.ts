@@ -21,16 +21,32 @@ export interface FundAccount {
   id: string;
   /** Empty for the main account: it is called "General" in the user's language. */
   name: string;
+  /** The savings goal in gold pieces, if the purpose has one. */
+  goal?: number;
+  /** Whether the goal counted as reached when last announced. */
+  reached?: boolean;
 }
 
 const flags = (actor: any) => actor?.flags?.[MODULE_ID] ?? {};
+
+/** A savings goal in whole gold pieces; undefined unless it is a finite number above zero. */
+export function cleanGoal(value: unknown): number | undefined {
+  const goal = Math.floor(Number(value));
+  return (Number.isFinite(goal) && (goal > 0)) ? goal : undefined;
+}
 
 /** The accounts of the group, the main account first. */
 export function fundAccounts(): FundAccount[] {
   const stored = getSetting(ACCOUNTS_SETTING);
   const list: FundAccount[] = (Array.isArray(stored) ? stored : [])
     .filter((a: any) => a && (typeof a.id === "string") && a.id)
-    .map((a: any) => ({ id: a.id, name: String(a.name ?? "") }));
+    .map((a: any) => {
+      const account: FundAccount = { id: a.id, name: String(a.name ?? "") };
+      const goal = cleanGoal(a.goal);
+      if ( goal !== undefined ) account.goal = goal;
+      if ( typeof a.reached === "boolean" ) account.reached = a.reached;
+      return account;
+    });
   if ( !list.some(a => a.id === MAIN_ACCOUNT) ) list.unshift({ id: MAIN_ACCOUNT, name: "" });
   return list;
 }
@@ -46,34 +62,52 @@ export const fundActive = () => ["button", "always"].includes(getSetting("partyF
 
 /**
  * The coins a character has on each account, read against a purse (the character's own by default). Together never
- * worth more than the purse. Each account keeps its own coins where it can; what is missing (the coins were changed,
- * say a gold piece into silver) it takes in other coins of the same worth, the largest first. When the purse is
- * worth too little, the main account gives way first, then the others from the newest.
+ * worth more than the purse. What an account holds is a worth: when the purse is worth too little, the main account
+ * gives way first, then the others from the newest (decided by worth, before any coin is handed out). Each account
+ * then keeps its own coins where it can; what is missing (the coins were changed, say silver into a gold piece) it
+ * takes in other coins of the same worth, the largest first, and where only a larger coin is left, a part of it
+ * (5 sp of a gold piece).
  */
 export function holdingsOf(actor: any, purse: Coins = coinsOf(actor)): Record<string, Coins> {
   const noted = flags(actor)[HOLDINGS_FLAG];
   if ( !noted || (typeof noted !== "object") ) return {};
   const accounts = fundAccounts();
   const order = [...accounts.filter(a => a.id !== MAIN_ACCOUNT), ...accounts.filter(a => a.id === MAIN_ACCOUNT)]
-    .filter(a => noted[a.id]).map(a => ({ id: a.id, want: coinsOf(noted[a.id]), got: emptyCoins() }));
+    .filter(a => noted[a.id]).map(a => ({ id: a.id, want: coinsOf(noted[a.id]), got: emptyCoins(), worth: 0 }));
   const left = Object.fromEntries(DENOMINATIONS.map(d => [d, Math.max(0, purse[d])])) as Coins;
-  // The own coins first, for all accounts …
+  // What each account keeps, by worth and in order.
+  let worth = toCopper(left);
+  for ( const entry of order ) {
+    entry.worth = Math.max(0, Math.min(toCopper(entry.want), worth));
+    worth -= entry.worth;
+  }
+  const shortOf = (entry: typeof order[number]) => entry.worth - toCopper(entry.got);
+  // The own coins first, for all accounts (never more than an account keeps) …
   for ( const entry of order ) {
     for ( const d of DENOMINATIONS ) {
-      const n = Math.max(0, Math.min(entry.want[d], left[d]));
+      const n = Math.max(0, Math.min(entry.want[d], left[d], Math.floor(shortOf(entry) / COPPER[d])));
       entry.got[d] += n;
       left[d] -= n;
     }
   }
-  // … then the worth still missing, in other coins.
+  // … then the worth still missing, in other coins, the largest first …
   for ( const entry of order ) {
-    let short = toCopper(entry.want) - toCopper(entry.got);
+    let short = shortOf(entry);
     for ( const d of DENOMINATIONS ) {
       if ( short <= 0 ) break;
       const n = Math.min(left[d], Math.floor(short / COPPER[d]));
       entry.got[d] += n;
       left[d] -= n;
       short -= n * COPPER[d];
+    }
+    // … and what no coin fits: a part of the smallest larger coin left (the rest of it stays for the others).
+    if ( short > 0 ) {
+      const coin = [...DENOMINATIONS].reverse().find(d => (left[d] > 0) && (COPPER[d] > short));
+      if ( coin ) {
+        left[coin] -= 1;
+        Object.assign(entry.got, add(entry.got, inCoins(short)));
+        Object.assign(left, add(left, inCoins(COPPER[coin] - short)));
+      }
     }
   }
   const result: Record<string, Coins> = {};
@@ -109,4 +143,26 @@ export function fundSpent(actor: any, after: Coins): { account: FundAccount; coi
     account,
     coins: inCoins(Math.max(0, toCopper(now[account.id]) - toCopper(then[account.id] ?? emptyCoins())))
   })).filter(s => !isZero(s.coins));
+}
+
+/** What the group has on one account: the holdings of all characters added up. */
+export const accountTotal = (id: string, members: any[]): Coins =>
+  members.reduce((total, m) => add(total, holdingOf(m, id)), emptyCoins());
+
+/** How far an account is towards its goal, by worth: gold pieces, percent (up to 100) and whether it is reached. */
+export function goalProgress(account: FundAccount, total: Coins):
+  { current: number; goal: number; percent: number; reached: boolean } | null {
+  const goal = account.goal;
+  if ( !goal ) return null;
+  const copper = toCopper(total);
+  // Copper over the goal in gold is percent as it stands.
+  return { current: copper / COPPER.gp, goal, percent: Math.min(100, copper / goal), reached: copper >= goal * COPPER.gp };
+}
+
+/** Whether the goal was just reached or lost, against what was announced last; null when nothing changed. */
+export function goalChange(account: FundAccount, total: Coins): "reached" | "lost" | null {
+  const reached = goalProgress(account, total)?.reached ?? false;
+  if ( reached && !account.reached ) return "reached";
+  if ( !reached && account.reached ) return "lost";
+  return null;
 }

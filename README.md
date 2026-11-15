@@ -26,7 +26,7 @@ Ammunition containers and waterskins accept only their intended contents. Ordina
 
 Drag items onto the map to drop them, then pick them up with a character within reach. The GM can hide piles, lock chests and place unidentified items. Coins in a pile can be distributed equally among the group, with a preview before anything changes.
 
-Two characters can exchange items and coins in a shared trade window. Both see the offers and must accept. Trading with NPCs is supported too; the GM handles NPCs without a player.
+Two characters can exchange items and coins in a shared trade window. Both see the offers and must accept. Trading with NPCs is supported too; the GM handles NPCs without a player. NPCs can also run shops. Players add purchases and sales to a basket. The GM sees the basket live and can adjust prices. The deal is completed once both sides agree.
 
 [Item piles](https://github.com/Flashiiio/Pack-and-Ledger/wiki/Item-Piles) · [Trading](https://github.com/Flashiiio/Pack-and-Ledger/wiki/Trading)
 

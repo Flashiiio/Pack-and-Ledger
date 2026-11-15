@@ -20,6 +20,7 @@ declare const ChatMessage: any;
 declare const Roll: any;
 declare const Actor: any;
 declare const Item: any;
+declare const PIXI: any;
 
 declare function fromUuid(uuid: string, options?: Record<string, unknown>): Promise<any>;
 declare function fromUuidSync(uuid: string, options?: Record<string, unknown>): any;

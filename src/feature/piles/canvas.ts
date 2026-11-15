@@ -6,6 +6,9 @@ import { closeOutOfReach, closePileApp, openPileApp, refreshPileApps } from "../
 import { createCoinPile } from "./gm-tools.js";
 import { MODULE_ID } from "../../core/constants.js";
 import { markPickedUp } from "./tear-card.js";
+import { isMerchant } from "../../core/policy/shop-prices.js";
+import { openShop } from "../shop/client.js";
+import { openMerchantShop } from "../../ui/shop-gm-app.js";
 
 /* -------------------------------------------- */
 /*  Hooks                                        */
@@ -67,16 +70,48 @@ function patchPileRuler() {
   });
 }
 
-/** Double-clicking a pile opens the pile window instead of the NPC sheet. */
+/** A merchant token whose actor the user does not own: double-clicking it opens the shop. */
+const isShopToken = (token: any, user: any = game.user) => {
+  const actor = token?.document?.actor;
+  return isMerchant(actor) && !actor.testUserPermission(user, "OWNER");
+};
+
+/**
+ * Foundry lets a user double-click a token only with at least limited permission on its actor, and players rarely
+ * have any on a merchant NPC. A visible merchant can be double-clicked by everyone (to open its shop); the other
+ * conditions Foundry checks (token layer active, no region being placed, nothing dragged, no ruler) stay.
+ */
+function patchMerchantView(proto: any) {
+  const original = proto?._canView;
+  if ( typeof original !== "function" ) return;
+  proto._canView = function(user?: any, event?: any) {
+    if ( !isShopToken(this, user) || this.document.isSecret || !this.visible ) return original.call(this, user, event);
+    if ( !this.layer.active || canvas.regions?._placementContext || this.layer._draggedToken ) return false;
+    if ( canvas.controls?.ruler?.active || (CONFIG.Canvas.rulerClass?.canMeasure && (event?.type === "pointerdown")) ) return false;
+    return true;
+  };
+}
+
+/**
+ * Double-clicking a pile opens the pile window instead of the NPC sheet; double-clicking a merchant someone else owns
+ * opens its shop, and the GM gets the merchant's shop window with its stock (the sheet opens from that window's
+ * header). Other owners of a merchant get the sheet as usual.
+ */
 export function patchTokenClick() {
   patchPileRuler();
   const proto = CONFIG.Token.objectClass?.prototype;
+  patchMerchantView(proto);
   const original = proto?._onClickLeft2;
   if ( typeof original !== "function" ) return;
   proto._onClickLeft2 = function(event?: any) {
-    if ( !isPileToken(this.document) ) return original.call(this, event);
+    const actor = this.document.actor;
+    const pile = isPileToken(this.document);
+    const gmShop = !pile && game.user.isGM && isMerchant(actor);
+    if ( !pile && !gmShop && !isShopToken(this) ) return original.call(this, event);
     if ( !this._propagateLeftClick(event) ) event.stopPropagation();
-    openPileApp(this.document);
+    if ( pile ) openPileApp(this.document);
+    else if ( gmShop ) openMerchantShop(actor);
+    else openShop(actor);
   };
 }
 
